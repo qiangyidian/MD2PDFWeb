@@ -294,13 +294,13 @@ const showPdf = computed(() =>
 }
 
 .warn-tip {
-  background: #fffbeb;
-  color: #92400e;
+  background: #f1f5f9;
+  color: #64748b;
 }
 
 .error-tip {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: #f1f5f9;
+  color: #64748b;
 }
 
 .panes {

@@ -371,7 +371,7 @@ onBeforeUnmount(() => {
   font-size: 22px;
   font-weight: 800;
   margin-bottom: 12px;
-  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.32);
+  box-shadow: 0 4px 14px rgba(91, 141, 239, 0.32);
 }
 
 .hero h1 {

@@ -1,16 +1,17 @@
 :root {
-  --accent: #e11d48;
-  --accent-soft: #fff1f2;
-  --accent-dark: #be123c;
+  /* 柔和蓝调主色（低饱和，去红黄） */
+  --accent: #5b8def;
+  --accent-dark: #4a7bd8;
+  --accent-soft: #eef4fe;
   --ink: #1f2937;
   --ink-soft: #6b7280;
   --ink-faint: #9ca3af;
   --line: #e5e7eb;
   --bg: #f8fafc;
   --card: #ffffff;
-  --ok: #16a34a;
-  --warn: #d97706;
-  --err: #dc2626;
+  --ok: #3fa27e;
+  --warn: #7a8ba6;
+  --err: #64748b;
   --radius: 14px;
   --radius-s: 10px;
   --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
@@ -40,7 +41,7 @@ body {
 }
 
 ::selection {
-  background: rgba(225, 29, 72, 0.16);
+  background: rgba(91, 141, 239, 0.18);
 }
 
 /* 统一键盘焦点环（Google 无障碍标准） */
@@ -178,7 +179,7 @@ a {
 
 .btn-primary:hover:not(:disabled) {
   background: var(--accent-dark);
-  box-shadow: 0 2px 6px rgba(225, 29, 72, 0.35);
+  box-shadow: 0 2px 6px rgba(91, 141, 239, 0.35);
 }
 
 .btn-ghost {

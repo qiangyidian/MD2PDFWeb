@@ -367,9 +367,9 @@ function onConfirmExit() {
 .prog-fill.done { background: var(--ok); }
 .prog-fill.err { background: var(--warn); }
 
-/* 排队中：MD3 不定进度条（滑块往复） */
+/* 排队中：MD3 不定进度条（滑块往复，柔和天蓝） */
 .prog-fill.queue {
-  background: #f59e0b;
+  background: #93b8f5;
   width: 40% !important;
   animation: queue-slide 1.4s var(--ease) infinite;
 }
