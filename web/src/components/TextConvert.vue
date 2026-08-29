@@ -38,6 +38,10 @@ async function convert() {
 <template>
   <div>
     <div class="text-head">
+      <span class="counter" :class="{ over: markdown.length > 500000 }">
+        {{ markdown.length.toLocaleString() }} 字符
+      </span>
+      <button v-if="markdown" class="btn btn-ghost btn-sm" @click="markdown = ''">清空</button>
       <label class="name-field">
         <span>文件名</span>
         <input v-model="filename" type="text" placeholder="document" />
@@ -66,7 +70,20 @@ async function convert() {
 .text-head {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 10px;
+}
+
+.counter {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.counter.over {
+  color: var(--err);
 }
 
 .name-field {

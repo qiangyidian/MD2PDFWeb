@@ -54,21 +54,23 @@ function onFileClick(file) {
         class="row dir-row"
         :style="{ paddingLeft: depth * 14 + 6 + 'px' }"
         :title="`${basePath}${name}/`"
+        :aria-expanded="!collapsed"
         @click="collapsed = !collapsed"
       >
         <span class="caret" :class="{ collapsed }">▸</span>
         <span class="icon">📁</span>
         <span class="name">{{ name }}</span>
       </div>
-      <TreeNode
-        v-if="!collapsed"
-        :node="dir"
-        :base-path="`${basePath}${name}/`"
-        :task-map="taskMap"
-        :selected="selected"
-        :depth="depth + 1"
-        @select="emit('select', $event)"
-      />
+      <div class="children" :class="{ collapsed }">
+        <TreeNode
+          :node="dir"
+          :base-path="`${basePath}${name}/`"
+          :task-map="taskMap"
+          :selected="selected"
+          :depth="depth + 1"
+          @select="emit('select', $event)"
+        />
+      </div>
     </div>
 
     <!-- 文件 -->
@@ -96,9 +98,10 @@ function onFileClick(file) {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 7px;
+  border-radius: 8px;
   line-height: 1.5;
   user-select: none;
+  transition: background-color 120ms var(--ease);
 }
 
 .dir-row {
@@ -111,9 +114,27 @@ function onFileClick(file) {
   background: #f1f5f9;
 }
 
+/* 目录展开/收起：平滑高度过渡 */
+.children {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 200ms var(--ease), opacity 180ms var(--ease);
+  opacity: 1;
+}
+
+.children.collapsed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.children > :deep(*) {
+  overflow: hidden;
+  min-height: 0;
+}
+
 .caret {
   display: inline-block;
-  transition: transform 0.15s ease;
+  transition: transform 180ms var(--ease);
   font-size: 11px;
   color: #94a3b8;
   width: 12px;

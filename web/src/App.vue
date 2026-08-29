@@ -259,11 +259,23 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="container">
-      <div class="tabs">
-        <button class="tab" :class="{ active: mode === 'files' }" @click="mode = 'files'">
+      <div class="tabs" role="tablist">
+        <button
+          class="tab"
+          :class="{ active: mode === 'files' }"
+          role="tab"
+          :aria-selected="mode === 'files'"
+          @click="mode = 'files'"
+        >
           📁 文件批量转换
         </button>
-        <button class="tab" :class="{ active: mode === 'text' }" @click="mode = 'text'">
+        <button
+          class="tab"
+          :class="{ active: mode === 'text' }"
+          role="tab"
+          :aria-selected="mode === 'text'"
+          @click="mode = 'text'"
+        >
           ✏️ 粘贴文本转换
         </button>
       </div>
@@ -337,6 +349,14 @@ onBeforeUnmount(() => {
 .hero {
   text-align: center;
   padding: 44px 16px 28px;
+  animation: hero-in 480ms var(--ease) both;
+}
+
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 
 .logo {
@@ -347,11 +367,11 @@ onBeforeUnmount(() => {
   height: 52px;
   background: var(--accent);
   color: #fff;
-  border-radius: 14px;
+  border-radius: 16px;
   font-size: 22px;
   font-weight: 800;
   margin-bottom: 12px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.32);
 }
 
 .hero h1 {
@@ -371,29 +391,41 @@ onBeforeUnmount(() => {
   padding: 0 20px 64px;
 }
 
+/* M3 分段控件：整体药丸容器 + 活动段白底浮起 */
 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 4px;
+  background: #eceff3;
+  border-radius: 999px;
+  padding: 4px;
+  margin-bottom: 18px;
 }
 
 .tab {
   flex: 1;
-  border: 1px solid var(--line);
-  background: #fff;
-  border-radius: 12px;
-  padding: 12px;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 11px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   color: var(--ink-soft);
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--speed) var(--ease),
+    color var(--speed) var(--ease),
+    box-shadow var(--speed) var(--ease);
+}
+
+.tab:hover:not(.active) {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .tab.active {
-  border-color: var(--accent);
   color: var(--accent);
-  background: var(--accent-soft);
+  background: #fff;
+  box-shadow: var(--shadow-1);
 }
 
 .hint {

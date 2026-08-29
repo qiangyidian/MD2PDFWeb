@@ -68,8 +68,7 @@ MD2PDFWeb/
 │     ├─ FileDrop.vue          上传区（文件/ZIP/整文件夹，目录拖拽递归遍历）
 │     ├─ FileTree.vue          文件树（扁平路径→目录树）
 │     ├─ TreeNode.vue          递归树节点（目录折叠、md 状态点亮）
-│     ├─ PreviewPane.vue       预览面板（源文件/PDF/对比 三态）
-│     ├─ JobProgress.vue       进度条/计数/日志控制台
+│     ├─ PreviewPane.vue       预览面板（源文件/PDF/对比 三态、骨架屏加载）
 │     ├─ OptionsForm.vue       转换选项
 │     └─ TextConvert.vue       粘贴文本直转
 ├─ deploy/            部署产物

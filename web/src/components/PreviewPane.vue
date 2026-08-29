@@ -86,9 +86,9 @@ const showPdf = computed(() =>
   <div class="preview">
     <!-- 未选中 -->
     <div v-if="!selectedPath" class="placeholder">
-      <div class="ph-icon">👆</div>
-      <div>点击左侧 <b>.md 文件</b> 在线预览</div>
-      <div class="ph-sub">转换完成后可同时查看 PDF 效果与源文对照</div>
+      <div class="ph-icon">📄</div>
+      <div class="ph-main">在左侧选择一个 <b>.md 文件</b> 开始预览</div>
+      <div class="ph-sub">中间为源文件渲染效果 · 右侧为纸张排版与 PDF 结果对照</div>
     </div>
 
     <template v-else>
@@ -140,7 +140,15 @@ const showPdf = computed(() =>
             {{ view === 'md' ? '📄 Markdown 源文件' : 'Markdown 源文件（渲染预览）' }}
           </div>
           <div class="frame-box">
-            <div v-if="!mdLoaded" class="loading">加载中…</div>
+            <div v-if="!mdLoaded" class="skeleton loading" aria-label="加载中">
+              <div class="sk-lines">
+                <span class="sk-line" style="width: 34%" />
+                <span class="sk-line" style="width: 88%" />
+                <span class="sk-line" style="width: 76%" />
+                <span class="sk-line" style="width: 92%" />
+                <span class="sk-line" style="width: 60%" />
+              </div>
+            </div>
             <iframe
               :key="`md:${selectedPath}`"
               :src="mdSrc"
@@ -155,7 +163,15 @@ const showPdf = computed(() =>
             {{ canPdf ? '📕 PDF 转换结果' : '📄 纸张排版预览（转换前）' }}
           </div>
           <div class="frame-box" :class="{ paper: !canPdf && view === 'pdf' }">
-            <div v-if="canPdf && !pdfLoaded" class="loading">加载中…</div>
+            <div v-if="canPdf && !pdfLoaded" class="skeleton loading" aria-label="加载中">
+              <div class="sk-lines">
+                <span class="sk-line" style="width: 30%" />
+                <span class="sk-line" style="width: 84%" />
+                <span class="sk-line" style="width: 70%" />
+                <span class="sk-line" style="width: 90%" />
+                <span class="sk-line" style="width: 55%" />
+              </div>
+            </div>
             <iframe
               v-if="canPdf"
               :key="`pdf:${task.index}`"
@@ -203,12 +219,21 @@ const showPdf = computed(() =>
 }
 
 .ph-icon {
-  font-size: 30px;
+  font-size: 34px;
+  margin-bottom: 4px;
+}
+
+.ph-main {
+  font-size: 14px;
+}
+
+.ph-main b {
+  color: var(--accent);
 }
 
 .ph-sub {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--ink-faint);
 }
 
 .toolbar {
@@ -332,10 +357,21 @@ const showPdf = computed(() =>
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink-soft);
-  font-size: 13px;
   background: #f8fafc;
   z-index: 1;
+}
+
+/* 骨架行：模拟文档版式 */
+.sk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(420px, 70%);
+}
+
+.sk-line {
+  height: 12px;
+  border-radius: 6px;
 }
 
 /* 纸张预览底色：模拟桌面，衬托白纸 */

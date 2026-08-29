@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import FileTree from './FileTree.vue'
 import PreviewPane from './PreviewPane.vue'
 import OptionsForm from './OptionsForm.vue'
@@ -52,6 +52,31 @@ const resultTitle = computed(() => {
   if (failedCount.value) return '⚠️ 部分文件转换失败'
   return '🎉 转换完成'
 })
+
+// ===== 交互细节 =====
+const confirmExit = ref(false)
+
+// 等待时间人性化：>60s 显示 1分05秒
+function fmtWait(sec) {
+  if (!sec || sec < 60) return `~${sec || 0}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return `~${m}分${s ? s + '秒' : ''}`
+}
+
+function onExitClick() {
+  if (props.phase === 'converting') {
+    confirmExit.value = true
+    return
+  }
+  emit('reset')
+}
+
+function onConfirmExit() {
+  confirmExit.value = false
+  emit('cancel')
+  emit('reset')
+}
 </script>
 
 <template>
@@ -82,7 +107,7 @@ const resultTitle = computed(() => {
                 {{ queueInfo.paused ? '🚦 系统繁忙' : '⏳ 排队中' }}
               </span>
               <span class="meta">
-                第 {{ queueInfo.position }} 位 · 预计等待 ~{{ queueInfo.estimatedWaitSec }}s
+                第 {{ queueInfo.position }} 位 · 预计等待 {{ fmtWait(queueInfo.estimatedWaitSec) }}
                 <template v-if="queueInfo.message"> · {{ queueInfo.message }}</template>
               </span>
             </div>
@@ -144,12 +169,31 @@ const resultTitle = computed(() => {
           </a>
         </template>
         <button
-          class="btn btn-ghost btn-exit"
-          :title="phase === 'finished' ? '开始新任务' : '退出并重新选择'"
-          @click="emit('reset')"
+          class="btn btn-ghost btn-icon"
+          :title="phase === 'finished' ? '开始新任务' : '退出'"
+          :aria-label="phase === 'finished' ? '开始新任务' : '退出'"
+          @click="onExitClick"
         >✕</button>
       </div>
     </header>
+
+    <!-- 退出确认（转换中防误触，M3 对话框） -->
+    <Teleport to="body">
+      <Transition name="dlg">
+        <div v-if="confirmExit" class="dlg-scrim" @click.self="confirmExit = false">
+          <div class="dlg" role="dialog" aria-modal="true" aria-label="退出确认">
+            <h3 class="dlg-title">退出当前任务？</h3>
+            <p class="dlg-text">
+              任务仍在排队/转换中，退出后需重新上传才能再次查看。确定要退出吗？
+            </p>
+            <div class="dlg-actions">
+              <button class="btn btn-ghost" @click="confirmExit = false">继续转换</button>
+              <button class="btn btn-primary" @click="onConfirmExit">退出并取消任务</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- ====== 三栏：目录树 | 源文件 | PDF ====== -->
     <div class="panels">
@@ -212,7 +256,7 @@ const resultTitle = computed(() => {
   border-radius: 12px;
   background: #fbfcfe;
   padding: 9px 14px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-1);
   flex-shrink: 0;
 }
 
@@ -307,7 +351,7 @@ const resultTitle = computed(() => {
 }
 
 .prog-bar {
-  height: 5px;
+  height: 4px;
   background: #e8ecf1;
   border-radius: 999px;
   overflow: hidden;
@@ -315,28 +359,24 @@ const resultTitle = computed(() => {
 
 .prog-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), #fb7185);
+  background: var(--accent);
   border-radius: 999px;
-  transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: width 0.35s var(--ease);
 }
 
 .prog-fill.done { background: var(--ok); }
 .prog-fill.err { background: var(--warn); }
 
-/* 排队中：往复流动动画 */
+/* 排队中：MD3 不定进度条（滑块往复） */
 .prog-fill.queue {
-  background: repeating-linear-gradient(
-    -45deg,
-    #fbbf24,
-    #fbbf24 8px,
-    #fcd34d 8px,
-    #fcd34d 16px
-  );
-  animation: queue-flow 1.2s linear infinite;
+  background: #f59e0b;
+  width: 40% !important;
+  animation: queue-slide 1.4s var(--ease) infinite;
 }
 
-@keyframes queue-flow {
-  to { background-position: 22.6px 0; }
+@keyframes queue-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
 }
 
 .job-error {
@@ -371,12 +411,68 @@ const resultTitle = computed(() => {
 }
 
 .btn-start {
-  padding: 9px 22px;
+  padding: 9px 24px;
 }
 
-.btn-exit {
-  padding: 8px 11px;
-  font-size: 13px;
+/* ---- M3 对话框 ---- */
+.dlg-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(15, 23, 42, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(2px);
+}
+
+.dlg {
+  background: #fff;
+  border-radius: 24px;
+  padding: 24px;
+  width: min(400px, 100%);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.28);
+}
+
+.dlg-title {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.dlg-text {
+  margin: 0 0 22px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dlg-enter-active,
+.dlg-leave-active {
+  transition: opacity 200ms var(--ease);
+}
+
+.dlg-enter-active .dlg,
+.dlg-leave-active .dlg {
+  transition: transform 200ms var(--ease), opacity 200ms var(--ease);
+}
+
+.dlg-enter-from,
+.dlg-leave-to {
+  opacity: 0;
+}
+
+.dlg-enter-from .dlg,
+.dlg-leave-to .dlg {
+  transform: scale(0.92);
+  opacity: 0;
 }
 
 .link {
@@ -407,7 +503,7 @@ const resultTitle = computed(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-1);
 }
 
 .side {
