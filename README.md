@@ -21,8 +21,7 @@ nginx md2pdf.qiangi.top ──► / → 5002；/api/ → 8002
 在 2 核 / 3.8G 的小机器上承载真实多用户：
 
 - **统一并发闸门**：所有渲染（批量任务 + 文本直转）由调度器控制，默认 2 路（`MD2PDF_CONCURRENCY`）
-- **任务级 Round-Robin**：多用户批量文件交错渲染，小任务不被先来用户的大批量饿死；
-  文本直转走高优先级通道插队
+- **任务级 Round-Robin**：多用户批量文件交错渲染，小任务不被先来用户的大批量饿死
 - **内存水位保护**：空闲内存低于 500MB（`MD2PDF_MIN_FREE_MEM`）自动暂停派发、恢复后继续，
   这是「不压垮系统」的核心背压机制
 - **准入控制**：全局排队上限 100（`MD2PDF_MAX_WAITING_JOBS`）、单 IP 同时 3 个任务
@@ -40,7 +39,6 @@ nginx md2pdf.qiangi.top ──► / → 5002；/api/ → 8002
 - **整文件夹上传**：`选择文件夹` 按钮或直接拖入文件夹，递归读取全部内容（含图片等资源）并保留目录结构；`.md`/`.zip` 也可散装上传
 - **IDE 式工作台**：上传后进入三栏界面——顶部为进度条/转换设置/开始按钮，左侧目录树，中间 Markdown 源文件渲染，右侧 PDF 转换结果，转换过程中树节点实时点亮 ✅/❌ 并可即时对照
 - 拖拽/点选批量上传 `.md` 与 `.zip`（ZIP 自动解压，保留子目录结构）
-- 两种模式：**文件批量转换** / **粘贴文本直接转 PDF 下载**
 - A4 / Letter、0–40mm 页边距、打印背景、递归子目录
 - SSE 实时进度：进度条、当前文件、成功/失败/跳过计数、运行日志
 - 单文件失败不中断批次；结果与 `convert-log.txt` 支持单个或整包下载
@@ -54,7 +52,6 @@ MD2PDFWeb/
 ├─ server/            后端 (端口 8002)
 │  ├─ src/index.js             Express 入口
 │  ├─ src/routes/jobs.js       上传/SSE/下载/取消/预览
-│  ├─ src/routes/textConvert.js 文本直转 PDF
 │  ├─ src/services/renderer.js  Markdown→HTML（移植自桌面版 converter.js）
 │  ├─ src/services/pdf.js       HTML→PDF（Puppeteer + 并发信号量）
 │  ├─ src/services/jobManager.js 任务生命周期/SSE 事件/TTL 清理
@@ -70,7 +67,7 @@ MD2PDFWeb/
 │     ├─ TreeNode.vue          递归树节点（目录折叠、md 状态点亮）
 │     ├─ PreviewPane.vue       预览面板（源文件/PDF/对比 三态、骨架屏加载）
 │     ├─ OptionsForm.vue       转换选项
-│     └─ TextConvert.vue       粘贴文本直转
+│     └─ OptionsForm.vue       转换选项
 ├─ deploy/            部署产物
 │  ├─ md2pdf-backend.service   systemd 后端服务
 │  ├─ md2pdf-web.service       systemd 前端服务
@@ -116,7 +113,6 @@ certbot --nginx -d md2pdf.qiangi.top
 | GET | `/api/jobs/:id/files/log/download` | 下载 convert-log.txt |
 | GET | `/api/jobs/:id/files/:n/download?inline=1` | 浏览器内嵌预览 PDF（inline） |
 | GET | `/api/jobs/:id/preview?path=…` | 在线预览 Markdown 源文件（复用转换渲染管线） |
-| POST | `/api/convert/text` | `{markdown,filename,options}` → PDF 直下 |
 | GET | `/api/queue` | 队列水位（running/queued/内存/你的在队数） |
 | GET | `/api/health` | 健康检查 |
 

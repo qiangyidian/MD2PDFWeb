@@ -3,7 +3,6 @@ const fs = require('node:fs');
 
 const config = require('./config');
 const jobsRouter = require('./routes/jobs');
-const textConvertRouter = require('./routes/textConvert');
 const jobManager = require('./services/jobManager');
 const { closeBrowser } = require('./services/browser');
 
@@ -33,7 +32,6 @@ app.get('/api/queue', (req, res) => {
 });
 
 app.use('/api/jobs', jobsRouter);
-app.use('/api/convert/text', textConvertRouter);
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: '接口不存在' });

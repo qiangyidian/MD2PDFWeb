@@ -2,10 +2,7 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
 import FileDrop from './components/FileDrop.vue'
 import Workbench from './components/Workbench.vue'
-import TextConvert from './components/TextConvert.vue'
 import { uploadFiles, getJob, getQueueStats, startJob, cancelJob, openEventStream } from './api'
-
-const mode = ref('files') // files | text
 
 // ---- 文件转换流程状态 ----
 const phase = ref('select') // select | uploading | ready | converting | finished
@@ -227,7 +224,7 @@ onBeforeUnmount(() => {
 <template>
   <!-- ============ 全屏 IDE 工作台（上传成功后铺满视口） ============ -->
   <Transition name="wb">
-    <div v-if="phase !== 'select' && phase !== 'uploading' && mode === 'files'" class="fullscreen">
+    <div v-if="phase !== 'select' && phase !== 'uploading'" class="fullscreen">
       <Workbench
         v-model="options"
         :job-id="jobId"
@@ -251,7 +248,7 @@ onBeforeUnmount(() => {
   </Transition>
 
   <!-- ============ 落地页 ============ -->
-  <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' && mode === 'files' }">
+  <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' }">
     <header class="hero">
       <div class="logo">M↓</div>
       <h1>MD2PDF Web</h1>
@@ -259,43 +256,16 @@ onBeforeUnmount(() => {
     </header>
 
     <main class="container">
-      <div class="tabs" role="tablist">
-        <button
-          class="tab"
-          :class="{ active: mode === 'files' }"
-          role="tab"
-          :aria-selected="mode === 'files'"
-          @click="mode = 'files'"
-        >
-          📁 文件批量转换
-        </button>
-        <button
-          class="tab"
-          :class="{ active: mode === 'text' }"
-          role="tab"
-          :aria-selected="mode === 'text'"
-          @click="mode = 'text'"
-        >
-          ✏️ 粘贴文本转换
-        </button>
-      </div>
-
-      <template v-if="mode === 'files'">
-        <div class="card">
-          <FileDrop :disabled="phase === 'uploading'" @files="onFiles" />
-          <p v-if="phase === 'uploading'" class="hint uploading">
-            <span class="spinner" /> 正在上传与整理目录…
-          </p>
-          <p v-if="error" class="error">{{ error }}</p>
-          <p v-if="landingQueue && (landingQueue.queuedJobs || landingQueue.running)" class="queue-chip">
-            🚦 当前 {{ landingQueue.running }} 路转换中 · {{ landingQueue.queuedJobs }} 个任务排队
-            <template v-if="landingQueue.paused"> · 系统繁忙，新任务可能延迟</template>
-          </p>
-        </div>
-      </template>
-
-      <div v-else class="card">
-        <TextConvert />
+      <div class="card">
+        <FileDrop :disabled="phase === 'uploading'" @files="onFiles" />
+        <p v-if="phase === 'uploading'" class="hint uploading">
+          <span class="spinner" /> 正在上传与整理目录…
+        </p>
+        <p v-if="error" class="error">{{ error }}</p>
+        <p v-if="landingQueue && (landingQueue.queuedJobs || landingQueue.running)" class="queue-chip">
+          🚦 当前 {{ landingQueue.running }} 路转换中 · {{ landingQueue.queuedJobs }} 个任务排队
+          <template v-if="landingQueue.paused"> · 系统繁忙，新任务可能延迟</template>
+        </p>
       </div>
 
       <footer class="footer">
@@ -389,43 +359,6 @@ onBeforeUnmount(() => {
   max-width: 1160px;
   margin: 0 auto;
   padding: 0 20px 64px;
-}
-
-/* M3 分段控件：整体药丸容器 + 活动段白底浮起 */
-.tabs {
-  display: flex;
-  gap: 4px;
-  background: #eceff3;
-  border-radius: 999px;
-  padding: 4px;
-  margin-bottom: 18px;
-}
-
-.tab {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  border-radius: 999px;
-  padding: 11px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--ink-soft);
-  transition:
-    background-color var(--speed) var(--ease),
-    color var(--speed) var(--ease),
-    box-shadow var(--speed) var(--ease);
-}
-
-.tab:hover:not(.active) {
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.tab.active {
-  color: var(--accent);
-  background: #fff;
-  box-shadow: var(--shadow-1);
 }
 
 .hint {

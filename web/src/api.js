@@ -61,25 +61,6 @@ export function openEventStream(id, handlers, { onOpen, onError } = {}) {
   return es
 }
 
-export async function convertText(markdown, filename, options) {
-  const res = await fetch('/api/convert/text', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ markdown, filename, options })
-  })
-
-  if (!res.ok) {
-    let message = `转换失败（HTTP ${res.status}）`
-    try {
-      const data = await res.json()
-      if (data && data.error) message = data.error
-    } catch { /* 非 JSON 响应 */ }
-    throw new Error(message)
-  }
-
-  return res.blob()
-}
-
 export function fileUrl(jobId, name) {
   return `/api/jobs/${jobId}/files/${encodeURIComponent(name)}/download`
 }
