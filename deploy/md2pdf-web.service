@@ -1,0 +1,14 @@
+[Unit]
+Description=MD2PDF Web 前端 (port 5002, vite preview)
+After=network.target md2pdf-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/MD2PDFWeb/web
+ExecStart=/usr/bin/npx vite preview --port 5002 --host
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+{
+  "name": "md2pdf-web-server",
+  "version": "1.0.0",
+  "description": "MD2PDF Web 后端：Markdown 批量转 PDF（Express + Puppeteer）",
+  "private": true,
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "archiver": "^7.0.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.0.1",
+    "highlight.js": "^11.11.1",
+    "iconv-lite": "^0.7.3",
+    "markdown-it": "^14.1.0",
+    "multer": "^2.0.2",
+    "puppeteer": "^24.10.0"
+  }
+}

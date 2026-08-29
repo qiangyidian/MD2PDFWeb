@@ -1,0 +1,15 @@
+[Unit]
+Description=MD2PDF Web 后端 (port 8002)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/MD2PDFWeb/server
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=8002
+
+[Install]
+WantedBy=multi-user.target

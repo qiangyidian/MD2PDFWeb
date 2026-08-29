@@ -1,0 +1,19 @@
+{
+  "name": "md2pdf-web-frontend",
+  "version": "1.0.0",
+  "description": "MD2PDF Web 前端：Markdown 批量转 PDF",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "vite": "^7.0.0"
+  }
+}

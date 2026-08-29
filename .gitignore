@@ -1,0 +1,34 @@
+# ===== 依赖 =====
+node_modules/
+web/dist/
+
+# ===== 运行时数据（任务工作区：上传源文件 + 生成的 PDF，2 小时 TTL 自动清理） =====
+server/data/
+data/
+
+# ===== 日志 =====
+*.log
+logs/
+npm-debug.log*
+
+# ===== 环境变量（含端口/队列参数等本机配置） =====
+.env
+.env.*
+!.env.example
+
+# ===== 编辑器 / IDE =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 临时 / 备份 =====
+*.tmp
+*.bak
+nohup.out
