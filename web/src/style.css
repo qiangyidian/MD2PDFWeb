@@ -94,29 +94,6 @@ a {
   scrollbar-color: #d3dae3 transparent;
 }
 
-/* ===== 涟漪反馈（Material ripple，全局 pointerdown 注入） ===== */
-.has-ripple {
-  position: relative;
-  overflow: hidden;
-}
-
-.ripple-ink {
-  position: absolute;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.14;
-  transform: scale(0);
-  animation: ripple-ink 550ms var(--ease) forwards;
-  pointer-events: none;
-}
-
-@keyframes ripple-ink {
-  to {
-    transform: scale(1);
-    opacity: 0;
-  }
-}
-
 /* ===== 骨架屏微光 ===== */
 .skeleton {
   position: relative;
