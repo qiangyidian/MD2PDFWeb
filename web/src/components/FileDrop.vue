@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import AppDialog from './AppDialog.vue'
 
 const emit = defineEmits(['files'])
 
@@ -8,17 +9,43 @@ const folderInput = ref(null)
 const dragging = ref(false)
 const dragDepth = ref(0)
 
+// ===== 上传确认（站内居中弹窗）=====
+// 选择/拖入后先暂存，弹窗确认后再真正上传，替代浏览器原生提示的生硬位置
+const pending = ref([]) // 暂存的 { file, relPath } 列表
+const pendingSource = ref('') // 来源描述：文件夹名 / 所选文件 / 拖入内容
+const confirmOpen = computed(() => pending.value.length > 0)
+
 // 收集要上传的条目：{ file, relPath }（relPath 为空表示散文件，只收 .md/.zip）
-function emitItems(items) {
+function stageItems(items, source) {
   const useful = items.filter((it) => {
     if (it.relPath) return true // 文件夹内的一切都收（图片等资源供相对引用）
     return /\.(md|zip)$/i.test(it.file.name)
   })
-  if (useful.length) emit('files', useful)
+  if (!useful.length) return
+  pending.value = useful
+  pendingSource.value = source
+}
+
+function confirmUpload() {
+  emit('files', pending.value)
+  discardPending()
+}
+
+function discardPending() {
+  pending.value = []
+  pendingSource.value = ''
+}
+
+// 来源描述：优先取文件夹名（relPath 首段），散文件则显示文件数
+function describeSource(items) {
+  const firstRel = items.find((it) => it.relPath)?.relPath || ''
+  const folder = firstRel.includes('/') ? firstRel.split('/')[0] : ''
+  return folder || '所选文件'
 }
 
 function onDropFiles(fileList) {
-  emitItems(Array.from(fileList || []).map((file) => ({ file, relPath: '' })))
+  const items = Array.from(fileList || []).map((file) => ({ file, relPath: '' }))
+  stageItems(items, describeSource(items))
 }
 
 function onChange(e) {
@@ -31,7 +58,7 @@ function onFolderChange(e) {
     file,
     relPath: file.webkitRelativePath || ''
   }))
-  emitItems(items)
+  stageItems(items, describeSource(items))
   e.target.value = ''
 }
 
@@ -79,7 +106,7 @@ async function onDrop(e) {
   for (const entry of entries) {
     items.push(...(await traverseEntry(entry)))
   }
-  emitItems(items)
+  stageItems(items, describeSource(items))
 }
 
 function onDragEnter() {
@@ -121,6 +148,22 @@ function onDragLeave() {
         <button class="btn btn-primary" @click.stop="folderInput?.click()">📁 选择文件夹</button>
       </div>
     </div>
+
+    <!-- 上传确认：页面居中弹出，与全站 M3 风格一致 -->
+    <AppDialog :open="confirmOpen" title="上传确认" :scrim-close="false" @close="discardPending">
+      <p class="cf-line">
+        是否将 <b class="cf-num">{{ pending.length }}</b> 个文件上传到此站点？
+      </p>
+      <p class="cf-line">
+        来源：<b>{{ pendingSource }}</b>
+        <template v-if="pendingSource !== '所选文件'">（保留目录结构）</template>
+      </p>
+      <p class="cf-note">上传后自动进入工作台；任务文件保留 2 小时后自动清理。</p>
+      <template #actions>
+        <button class="btn btn-ghost" @click="discardPending">取消</button>
+        <button class="btn btn-primary" @click="confirmUpload">开始上传</button>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -165,5 +208,25 @@ function onDragLeave() {
   gap: 14px;
   margin-top: 16px;
   flex-wrap: wrap;
+}
+
+/* ===== 上传确认弹窗正文 ===== */
+.cf-line {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.cf-num {
+  color: var(--accent);
+  font-size: 15px;
+}
+
+.cf-note {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--ink-faint);
 }
 </style>

@@ -4,6 +4,7 @@ import FileTree from './FileTree.vue'
 import PreviewPane from './PreviewPane.vue'
 import OptionsForm from './OptionsForm.vue'
 import UserBadge from './UserBadge.vue'
+import AppDialog from './AppDialog.vue'
 import { fileUrl, jobZipUrl } from '../api'
 
 const props = defineProps({
@@ -187,23 +188,14 @@ function onConfirmExit() {
       </div>
     </header>
 
-    <!-- 退出确认（转换中防误触，M3 对话框） -->
-    <Teleport to="body">
-      <Transition name="dlg">
-        <div v-if="confirmExit" class="dlg-scrim" @click.self="confirmExit = false">
-          <div class="dlg" role="dialog" aria-modal="true" aria-label="退出确认">
-            <h3 class="dlg-title">退出当前任务？</h3>
-            <p class="dlg-text">
-              任务仍在排队/转换中，退出后需重新上传才能再次查看。确定要退出吗？
-            </p>
-            <div class="dlg-actions">
-              <button class="btn btn-ghost" @click="confirmExit = false">继续转换</button>
-              <button class="btn btn-primary" @click="onConfirmExit">退出并取消任务</button>
-            </div>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- 退出确认（转换中防误触，全站统一弹窗） -->
+    <AppDialog :open="confirmExit" title="退出当前任务？" @close="confirmExit = false">
+      任务仍在排队/转换中，退出后需重新上传才能再次查看。确定要退出吗？
+      <template #actions>
+        <button class="btn btn-ghost" @click="confirmExit = false">继续转换</button>
+        <button class="btn btn-primary" @click="onConfirmExit">退出并取消任务</button>
+      </template>
+    </AppDialog>
 
     <!-- ====== 三栏：目录树 | 源文件 | PDF ====== -->
     <div class="panels">
@@ -424,67 +416,7 @@ function onConfirmExit() {
   padding: 9px 24px;
 }
 
-/* ---- M3 对话框 ---- */
-.dlg-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgba(15, 23, 42, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  backdrop-filter: blur(2px);
-}
-
-.dlg {
-  background: #fff;
-  border-radius: 24px;
-  padding: 24px;
-  width: min(400px, 100%);
-  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.28);
-}
-
-.dlg-title {
-  margin: 0 0 10px;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.dlg-text {
-  margin: 0 0 22px;
-  font-size: 13.5px;
-  color: var(--ink-soft);
-  line-height: 1.7;
-}
-
-.dlg-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.dlg-enter-active,
-.dlg-leave-active {
-  transition: opacity 200ms var(--ease);
-}
-
-.dlg-enter-active .dlg,
-.dlg-leave-active .dlg {
-  transition: transform 200ms var(--ease), opacity 200ms var(--ease);
-}
-
-.dlg-enter-from,
-.dlg-leave-to {
-  opacity: 0;
-}
-
-.dlg-enter-from .dlg,
-.dlg-leave-to .dlg {
-  transform: scale(0.92);
-  opacity: 0;
-}
-
+/* ---- M3 对话框（统一组件 AppDialog，样式内聚在其文件中）---- */
 .link {
   font-size: 12px;
   color: var(--ink-soft);
