@@ -20,10 +20,12 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '25mb' }));
 
 // 安全响应头（Content-Type 嗅探防护；CSP/HSTS 由 nginx 层负责，避免与静态资源策略冲突）
+// 注意 X-Frame-Options 必须是 SAMEORIGIN 而非 DENY：预览面板用同源 iframe 加载
+// /api/jobs/:id/preview 与内嵌 PDF，DENY 会把自己站内的预览也拦截掉（拒绝连接）
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   next();
 });
 

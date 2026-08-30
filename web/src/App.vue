@@ -3,11 +3,14 @@ import { ref, computed, onBeforeUnmount } from 'vue'
 import FileDrop from './components/FileDrop.vue'
 import Workbench from './components/Workbench.vue'
 import AuthView from './components/AuthView.vue'
+import UserBadge from './components/UserBadge.vue'
 import { uploadFiles, getJob, getQueueStats, startJob, cancelJob, openEventStream, fetchMe, logout, setUnauthorizedHandler } from './api'
 
 // ---- 登录态：boot（会话恢复中）→ auth（未登录）→ app（已登录） ----
 const boot = ref('loading') // loading | auth | app
 const user = ref(null)
+// 剩余可处理文件数（配额接口就绪后接上；null = 未接通，徽章显示占位）
+const remainingQuota = ref(null)
 
 // 会话过期（任意接口 401）→ 全局切回登录页
 setUnauthorizedHandler(() => {
@@ -286,6 +289,7 @@ onBeforeUnmount(() => {
           :queue-info="queueInfo"
           :start-error="startError"
           :user="user"
+          :quota="remainingQuota"
           @logout="onLogout"
           @select="selectedPath = $event"
           @start="begin"
@@ -297,6 +301,10 @@ onBeforeUnmount(() => {
 
     <!-- ============ 落地页 ============ -->
     <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' }">
+      <!-- 全局用户标识（右上角悬浮；quota 待配额接口接通） -->
+      <div class="user-corner">
+        <UserBadge :user="user" :quota="remainingQuota" @logout="onLogout" />
+      </div>
       <header class="hero">
         <div class="logo">M↓</div>
         <h1>MD2PDF Web</h1>
@@ -317,8 +325,7 @@ onBeforeUnmount(() => {
         </div>
 
         <footer class="footer">
-          由 MD2PDF Web 提供服务 · 渲染引擎 markdown-it + Chromium · 任务文件保留 2 小时 ·
-          <button class="link" @click="onLogout">{{ user?.name || user?.email }} · 退出登录</button>
+          由 MD2PDF Web 提供服务 · 渲染引擎 markdown-it + Chromium · 任务文件保留 2 小时
         </footer>
       </main>
     </div>
@@ -326,6 +333,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* ===== 全局用户标识（右上角悬浮）===== */
+.user-corner {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  z-index: 50;
+  animation: hero-in 480ms var(--ease) both;
+}
+
 /* ===== 会话恢复中 ===== */
 .boot {
   min-height: 100dvh;

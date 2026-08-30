@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import FileTree from './FileTree.vue'
 import PreviewPane from './PreviewPane.vue'
 import OptionsForm from './OptionsForm.vue'
+import UserBadge from './UserBadge.vue'
 import { fileUrl, jobZipUrl } from '../api'
 
 const props = defineProps({
@@ -20,7 +21,9 @@ const props = defineProps({
   queueInfo: { type: Object, default: null },
   startError: { type: String, default: '' },
   // 当前登录用户（顶栏展示 + 登出）
-  user: { type: Object, default: null }
+  user: { type: Object, default: null },
+  // 剩余可处理文件数（配额接口就绪后由 App 传入；null = 未接通显示占位）
+  quota: { type: Number, default: null }
 })
 
 const options = defineModel({ type: Object, required: true })
@@ -159,12 +162,12 @@ function onConfirmExit() {
 
       <!-- 动作 -->
       <div class="actions">
-        <button
+        <UserBadge
           v-if="user"
-          class="btn btn-ghost btn-user"
-          :title="`${user.email}（退出登录）`"
-          @click="emit('logout')"
-        >👤 {{ user.name }} · 退出</button>
+          :user="user"
+          :quota="quota"
+          @logout="emit('logout')"
+        />
         <button v-if="phase === 'ready'" class="btn btn-primary btn-start" @click="emit('start')">
           🚀 开始转换
         </button>
@@ -419,15 +422,6 @@ function onConfirmExit() {
 
 .btn-start {
   padding: 9px 24px;
-}
-
-/* 用户身份胶囊（顶栏） */
-.btn-user {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12.5px;
 }
 
 /* ---- M3 对话框 ---- */
