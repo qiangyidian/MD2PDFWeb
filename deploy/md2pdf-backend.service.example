@@ -10,7 +10,8 @@ Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=8002
-# 会话密钥：保持重启后登录态不丢（openssl rand -hex 32 生成后替换，然后 systemctl daemon-reload）
+# 会话密钥：openssl rand -hex 32 生成后填入（保持重启后登录态不丢）
+# 真实 unit 文件含密钥，已加入 .gitignore，不随仓库分发
 Environment=MD2PDF_SESSION_SECRET=CHANGE_ME_TO_RANDOM_64_HEX_CHARS
 
 [Install]
