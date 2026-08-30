@@ -32,3 +32,6 @@ desktop.ini
 *.tmp
 *.bak
 nohup.out
+
+# ===== 含真实会话密钥的 systemd unit（模板见 .example）=====
+deploy/md2pdf-backend.service
