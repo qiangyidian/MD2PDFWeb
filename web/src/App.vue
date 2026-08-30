@@ -2,7 +2,43 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
 import FileDrop from './components/FileDrop.vue'
 import Workbench from './components/Workbench.vue'
-import { uploadFiles, getJob, getQueueStats, startJob, cancelJob, openEventStream } from './api'
+import AuthView from './components/AuthView.vue'
+import { uploadFiles, getJob, getQueueStats, startJob, cancelJob, openEventStream, fetchMe, logout, setUnauthorizedHandler } from './api'
+
+// ---- 登录态：boot（会话恢复中）→ auth（未登录）→ app（已登录） ----
+const boot = ref('loading') // loading | auth | app
+const user = ref(null)
+
+// 会话过期（任意接口 401）→ 全局切回登录页
+setUnauthorizedHandler(() => {
+  user.value = null
+  boot.value = 'auth'
+  reset()
+})
+
+async function onAuthenticated(u) {
+  user.value = u
+  boot.value = 'app'
+}
+
+async function onLogout() {
+  try {
+    await logout()
+  } catch { /* 会话已失效也照常退出 */ }
+  user.value = null
+  boot.value = 'auth'
+  reset()
+}
+
+// 页面加载时恢复会话（Cookie 自动携带）
+fetchMe()
+  .then(({ user: u }) => {
+    user.value = u
+    boot.value = 'app'
+  })
+  .catch(() => {
+    boot.value = 'auth'
+  })
 
 // ---- 文件转换流程状态 ----
 const phase = ref('select') // select | uploading | ready | converting | finished
@@ -222,60 +258,96 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- ============ 全屏 IDE 工作台（上传成功后铺满视口） ============ -->
-  <Transition name="wb">
-    <div v-if="phase !== 'select' && phase !== 'uploading'" class="fullscreen">
-      <Workbench
-        v-model="options"
-        :job-id="jobId"
-        :all-files="allFiles"
-        :tasks="tasks"
-        :selected-path="selectedPath"
-        :archives="archives"
-        :stats="stats"
-        :current-file="currentFile"
-        :phase="phase"
-        :job-error="jobError"
-        :job-status="jobStatus"
-        :queue-info="queueInfo"
-        :start-error="startError"
-        @select="selectedPath = $event"
-        @start="begin"
-        @cancel="cancel"
-        @reset="reset"
-      />
-    </div>
-  </Transition>
-
-  <!-- ============ 落地页 ============ -->
-  <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' }">
-    <header class="hero">
-      <div class="logo">M↓</div>
-      <h1>MD2PDF Web</h1>
-      <p>在线 Markdown 批量转 PDF · 支持整文件夹上传 / 代码高亮 / 中文排版 / 在线预览对照</p>
-    </header>
-
-    <main class="container">
-      <div class="card">
-        <FileDrop :disabled="phase === 'uploading'" @files="onFiles" />
-        <p v-if="phase === 'uploading'" class="hint uploading">
-          <span class="spinner" /> 正在上传与整理目录…
-        </p>
-        <p v-if="error" class="error">{{ error }}</p>
-        <p v-if="landingQueue && (landingQueue.queuedJobs || landingQueue.running)" class="queue-chip">
-          🚦 当前 {{ landingQueue.running }} 路转换中 · {{ landingQueue.queuedJobs }} 个任务排队
-          <template v-if="landingQueue.paused"> · 系统繁忙，新任务可能延迟</template>
-        </p>
-      </div>
-
-      <footer class="footer">
-        由 MD2PDF Web 提供服务 · 渲染引擎 markdown-it + Chromium · 任务文件保留 2 小时
-      </footer>
-    </main>
+  <!-- ============ 会话恢复中 ============ -->
+  <div v-if="boot === 'loading'" class="boot">
+    <span class="spinner" />
   </div>
+
+  <!-- ============ 登录 / 注册 ============ -->
+  <AuthView v-else-if="boot === 'auth'" @authenticated="onAuthenticated" />
+
+  <!-- ============ 已登录：主应用 ============ -->
+  <template v-else>
+    <!-- ============ 全屏 IDE 工作台（上传成功后铺满视口） ============ -->
+    <Transition name="wb">
+      <div v-if="phase !== 'select' && phase !== 'uploading'" class="fullscreen">
+        <Workbench
+          v-model="options"
+          :job-id="jobId"
+          :all-files="allFiles"
+          :tasks="tasks"
+          :selected-path="selectedPath"
+          :archives="archives"
+          :stats="stats"
+          :current-file="currentFile"
+          :phase="phase"
+          :job-error="jobError"
+          :job-status="jobStatus"
+          :queue-info="queueInfo"
+          :start-error="startError"
+          :user="user"
+          @logout="onLogout"
+          @select="selectedPath = $event"
+          @start="begin"
+          @cancel="cancel"
+          @reset="reset"
+        />
+      </div>
+    </Transition>
+
+    <!-- ============ 落地页 ============ -->
+    <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' }">
+      <header class="hero">
+        <div class="logo">M↓</div>
+        <h1>MD2PDF Web</h1>
+        <p>在线 Markdown 批量转 PDF · 支持整文件夹上传 / 代码高亮 / 中文排版 / 在线预览对照</p>
+      </header>
+
+      <main class="container">
+        <div class="card">
+          <FileDrop :disabled="phase === 'uploading'" @files="onFiles" />
+          <p v-if="phase === 'uploading'" class="hint uploading">
+            <span class="spinner" /> 正在上传与整理目录…
+          </p>
+          <p v-if="error" class="error">{{ error }}</p>
+          <p v-if="landingQueue && (landingQueue.queuedJobs || landingQueue.running)" class="queue-chip">
+            🚦 当前 {{ landingQueue.running }} 路转换中 · {{ landingQueue.queuedJobs }} 个任务排队
+            <template v-if="landingQueue.paused"> · 系统繁忙，新任务可能延迟</template>
+          </p>
+        </div>
+
+        <footer class="footer">
+          由 MD2PDF Web 提供服务 · 渲染引擎 markdown-it + Chromium · 任务文件保留 2 小时 ·
+          <button class="link" @click="onLogout">{{ user?.name || user?.email }} · 退出登录</button>
+        </footer>
+      </main>
+    </div>
+  </template>
 </template>
 
 <style scoped>
+/* ===== 会话恢复中 ===== */
+.boot {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.link {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  font-size: inherit;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
 /* ===== 全屏工作台层 ===== */
 .fullscreen {
   position: fixed;

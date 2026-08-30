@@ -2,9 +2,12 @@ const express = require('express');
 const fs = require('node:fs');
 
 const config = require('./config');
+const authRouter = require('./routes/auth');
 const jobsRouter = require('./routes/jobs');
 const jobManager = require('./services/jobManager');
+const sessionStore = require('./services/sessionStore');
 const { closeBrowser } = require('./services/browser');
+const { requireAuth } = require('./middleware/auth');
 
 const scheduler = require('./services/scheduler');
 
@@ -15,6 +18,14 @@ app.set('trust proxy', 1);
 
 app.use(express.json({ limit: '25mb' }));
 
+// 安全响应头（Content-Type 嗅探防护；CSP/HSTS 由 nginx 层负责，避免与静态资源策略冲突）
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
+});
+
 // 任务工作区
 fs.mkdirSync(config.jobsDir, { recursive: true });
 
@@ -22,11 +33,14 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'md2pdf-web', ...config.reportSystemInfo });
 });
 
-// 队列状态（多用户排队透明化）
-app.get('/api/queue', (req, res) => {
+// 登录注册（无需鉴权，自带限流）
+app.use('/api/auth', authRouter);
+
+// 队列状态（多用户排队透明化）——登录后可见
+app.get('/api/queue', requireAuth, (req, res) => {
   res.json({
     ...scheduler.stats(),
-    yourActiveJobs: scheduler.countByIp(req.ip),
+    yourActiveJobs: scheduler.countByOwner(req.user.id),
     maxJobsPerIp: config.queue.maxJobsPerIp
   });
 });
@@ -59,6 +73,21 @@ app.use((error, _req, res, _next) => {
 });
 
 jobManager.startSweeper();
+sessionStore.startSweeper();
+
+// 会话密钥兜底提示：生产环境未显式配置时每次重启会登出全部用户
+if (process.env.NODE_ENV === 'production' && !process.env.MD2PDF_SESSION_SECRET) {
+  console.warn('[auth] 生产环境未设置 MD2PDF_SESSION_SECRET，进程重启将使所有会话失效');
+}
+
+// 非回环监听告警：鉴权设计假定后端只在本机回环 + nginx 反代下暴露
+const hostIsLoopback = ['127.0.0.1', '::1', 'localhost'].includes(config.host);
+if (!hostIsLoopback) {
+  console.warn(
+    `[auth] 警告：后端正监听 ${config.host}（非回环地址）。请确认已有防火墙/nginx TLS 前置，` +
+      '否则登录凭据将以明文暴露在网络上。'
+  );
+}
 
 const server = app.listen(config.port, config.host, () => {
   console.log(`[md2pdf] 后端已启动: http://${config.host}:${config.port}`);

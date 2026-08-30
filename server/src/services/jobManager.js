@@ -8,6 +8,7 @@ const scheduler = require('./scheduler');
 const { renderMarkdownToHtml } = require('./renderer');
 const { renderHtmlToPdf } = require('./pdf');
 const { extractZip } = require('./zipExtract');
+const { internalSourceBase } = require('../middleware/auth');
 const { buildOutputPath, isMarkdownFile, sanitizeRelPath, scanAllFiles, scanMarkdownFiles, safeJoin } = require('./fileScanner');
 
 const jobs = new Map(); // id -> job
@@ -45,13 +46,14 @@ function jobDir(jobId) {
   return safeJoin(config.jobsDir, jobId);
 }
 
-function createJob(ip = '') {
+function createJob(ip = '', user = null) {
   const id = crypto.randomUUID();
   const dir = jobDir(id);
 
   const job = {
     id,
     ip,
+    userId: user ? user.id : null, // 任务归属：所有接口按此做所有权隔离
     dir,
     sourceDir: path.join(dir, 'source'),
     outputDir: path.join(dir, 'output'),
@@ -222,8 +224,10 @@ async function convertOneFile(job, task) {
   }
 
   const markdown = await fs.readFile(inputAbs, 'utf8');
-  const baseUrl = `${config.internalBaseUrl}/api/jobs/${job.id}/source/${task.inputRel.split('/').map(encodeURIComponent).join('/')}`;
-  const dirBaseUrl = baseUrl.slice(0, baseUrl.lastIndexOf('/') + 1);
+  // 内部通道：令牌编入路径前缀（相对 URL 解析会丢弃 base 的 query，只能走 path）；
+  // 该 URL 只进 Puppeteer 的 HTML，绝不返回给浏览器
+  const relDir = task.inputRel.split('/').slice(0, -1).map(encodeURIComponent).join('/');
+  const dirBaseUrl = `${internalSourceBase(job.id, relDir ? `${relDir}/` : '')}`;
   const html = renderMarkdownToHtml({
     markdown,
     title: path.basename(task.inputRel),
@@ -329,7 +333,9 @@ async function startConversion(job, rawOptions) {
   job.stats.total = job.tasks.length;
 
   // 单用户准入：同时排队/转换中的任务数受限，防止个别用户占满队列
-  if (job.ip && scheduler.countByIp(job.ip) >= config.queue.maxJobsPerIp) {
+  // 以登录用户为维度（未登录任务已不存在；userId 兜底退回 IP 维度）
+  const ownerKey = job.userId || job.ip;
+  if (ownerKey && scheduler.countByOwner(ownerKey) >= config.queue.maxJobsPerIp) {
     const error = new Error(`您已有 ${config.queue.maxJobsPerIp} 个任务在队列中，请等待完成后再提交`);
     error.statusCode = 429;
     throw error;
@@ -339,7 +345,7 @@ async function startConversion(job, rawOptions) {
   try {
     handle = scheduler.submit({
       jobId: job.id,
-      ip: job.ip,
+      ownerKey,
       tasks: job.tasks,
       runTask: (task) => convertOneFile(job, task),
       callbacks: {

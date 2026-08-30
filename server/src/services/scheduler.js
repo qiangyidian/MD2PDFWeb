@@ -74,15 +74,15 @@ class Scheduler {
     };
   }
 
-  // 某个 IP 当前占用（排队中 + 转换中）的任务数
-  countByIp(ip) {
-    return this.lane.filter((h) => h.ip === ip && !h.cancelled).length;
+  // 某个归属（登录用户 id，未登录兜底 IP）当前占用（排队中 + 转换中）的任务数
+  countByOwner(ownerKey) {
+    return this.lane.filter((h) => h.ownerKey === ownerKey && !h.cancelled).length;
   }
 
   // ---------- 准入 ----------
 
   // 批量任务入队；队列已满或系统过载时抛 429/503
-  submit({ jobId, ip, tasks, runTask, callbacks }) {
+  submit({ jobId, ownerKey, tasks, runTask, callbacks }) {
     if (this.paused) {
       const error = new Error('系统当前负载较高，请稍后再试');
       error.statusCode = 503;
@@ -96,7 +96,7 @@ class Scheduler {
 
     const handle = {
       jobId,
-      ip,
+      ownerKey,
       pending: [...tasks],
       total: tasks.length,
       runningCount: 0,

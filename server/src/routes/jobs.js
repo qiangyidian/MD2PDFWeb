@@ -10,8 +10,12 @@ const config = require('../config');
 const jobManager = require('../services/jobManager');
 const { renderMarkdownToHtml } = require('../services/renderer');
 const { safeJoin, sanitizeRelPath } = require('../services/fileScanner');
+const { requireAuth, sameOriginGuard, isInternalRequest } = require('../middleware/auth');
 
 const router = express.Router();
+
+// 任务接口一律要求登录；写操作加同源校验（CSRF 防线）
+router.use(requireAuth, sameOriginGuard);
 
 const uploadLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -38,9 +42,10 @@ const upload = multer({
   // 文件夹上传时资源文件（图片等）需一并入库，故不按扩展名过滤
 });
 
+// 任务查找 + 所有权校验：只能访问自己的任务，他人的任务与不存在的任务同样返回 404（不泄露存在性）
 function findJobOr404(req, res) {
   const job = jobManager.getJob(req.params.id);
-  if (!job) {
+  if (!job || job.userId !== req.user.id) {
     res.status(404).json({ error: '任务不存在或已过期' });
     return null;
   }
@@ -49,7 +54,7 @@ function findJobOr404(req, res) {
 
 // 创建任务：上传 .md 文件 / .zip 压缩包 / 整个文件夹（附 path 相对路径字段）
 router.post('/', uploadLimiter, upload.array('files', config.limits.maxUploadFiles), async (req, res, next) => {
-  const job = jobManager.createJob(req.ip);
+  const job = jobManager.createJob(req.ip, req.user);
 
   try {
     await fs.mkdir(job.sourceDir, { recursive: true });
@@ -205,7 +210,9 @@ router.get('/:id/preview', async (req, res) => {
     }
 
     const markdown = await fs.readFile(abs, 'utf8');
-    const dirUrl = `${config.internalBaseUrl}/api/jobs/${job.id}/source/${
+    // 预览页返回给浏览器：base 用同源相对路径（浏览器自动带会话 Cookie，
+    // /:id/source 已做所有权校验）——绝不能把内部令牌通道写进面向用户的 HTML
+    const dirUrl = `/api/jobs/${job.id}/source/${
       rel.split('/').slice(0, -1).map(encodeURIComponent).join('/')
     }/`;
 
@@ -237,7 +244,35 @@ router.get('/:id/preview', async (req, res) => {
   }
 });
 
-// 任务源文件（供 PDF 渲染解析相对图片；UUID 不可猜测，2 小时过期）
+// 内部通道（Puppeteer 专用）：/internal/<token>/<jobId>/source/<relPath>
+// 令牌在路径里（子资源请求无法带自定义头）。命中条件：回环直连 + 无 XFF + 令牌匹配，
+// 三者缺一不可 —— 经 nginx 转发的外部请求即使伪造路径也过不了直连判定
+router.get('/internal/:token/:id/source/*splat', async (req, res) => {
+  if (!isInternalRequest(req, req.params.token)) {
+    res.status(404).json({ error: '任务不存在或已过期' });
+    return;
+  }
+
+  const job = jobManager.getJob(req.params.id);
+  if (!job) {
+    res.status(404).json({ error: '任务不存在或已过期' });
+    return;
+  }
+
+  try {
+    const splat = Array.isArray(req.params.splat) ? req.params.splat.join('/') : (req.params.splat || '');
+    const filePath = safeJoin(job.sourceDir, splat);
+    const stat = await fs.stat(filePath);
+    if (!stat.isFile()) {
+      return res.status(404).json({ error: '文件不存在' });
+    }
+    res.sendFile(filePath);
+  } catch {
+    res.status(404).json({ error: '文件不存在' });
+  }
+});
+
+// 任务源文件（用户通过浏览器访问，如 MD 在线预览中的相对图片）
 router.get('/:id/source/*splat', async (req, res) => {
   const job = findJobOr404(req, res);
   if (!job) return;

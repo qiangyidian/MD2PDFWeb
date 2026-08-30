@@ -1,13 +1,52 @@
 // 后端 API 封装
+// 401 全局回调：会话过期时由 App.vue 切回登录页（避免每个调用点重复处理）
+let onUnauthorized = null
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn
+}
+
 async function request(url, options = {}) {
-  const res = await fetch(url, options)
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      // 自定义头触发 CORS 预检的同时，也作为「同源 XHR」标记参与 CSRF 防线
+      'X-Requested-With': 'XMLHttpRequest',
+      ...(options.headers || {})
+    }
+  })
   const contentType = res.headers.get('content-type') || ''
   const data = contentType.includes('application/json') ? await res.json() : null
 
   if (!res.ok) {
+    if (res.status === 401 && onUnauthorized) onUnauthorized()
     throw new Error((data && data.error) || `请求失败（HTTP ${res.status}）`)
   }
   return data
+}
+
+// ===== 认证 =====
+export function register({ email, password, name }) {
+  return request('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, name })
+  })
+}
+
+export function login({ email, password }) {
+  return request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  })
+}
+
+export function logout() {
+  return request('/api/auth/logout', { method: 'POST' })
+}
+
+export function fetchMe() {
+  return request('/api/auth/me')
 }
 
 // items: [{ file, relPath }] — relPath 为文件夹内相对路径（保留目录结构），散文件为空串

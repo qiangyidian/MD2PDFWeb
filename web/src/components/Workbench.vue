@@ -18,12 +18,14 @@ const props = defineProps({
   jobStatus: { type: String, default: '' },
   // 排队状态（多用户消息队列）：{ position, estimatedWaitSec, paused, message }
   queueInfo: { type: Object, default: null },
-  startError: { type: String, default: '' }
+  startError: { type: String, default: '' },
+  // 当前登录用户（顶栏展示 + 登出）
+  user: { type: Object, default: null }
 })
 
 const options = defineModel({ type: Object, required: true })
 
-const emit = defineEmits(['select', 'start', 'cancel', 'reset'])
+const emit = defineEmits(['select', 'start', 'cancel', 'reset', 'logout'])
 
 const selectedTask = computed(() =>
   props.tasks.find((t) => t.inputRel === props.selectedPath) || null
@@ -87,7 +89,6 @@ function onConfirmExit() {
         <span class="logo">M↓</span>
         <span class="brand-name">MD2PDF</span>
       </div>
-
       <div class="mid">
         <!-- 就绪 -->
         <template v-if="phase === 'ready'">
@@ -158,6 +159,12 @@ function onConfirmExit() {
 
       <!-- 动作 -->
       <div class="actions">
+        <button
+          v-if="user"
+          class="btn btn-ghost btn-user"
+          :title="`${user.email}（退出登录）`"
+          @click="emit('logout')"
+        >👤 {{ user.name }} · 退出</button>
         <button v-if="phase === 'ready'" class="btn btn-primary btn-start" @click="emit('start')">
           🚀 开始转换
         </button>
@@ -412,6 +419,15 @@ function onConfirmExit() {
 
 .btn-start {
   padding: 9px 24px;
+}
+
+/* 用户身份胶囊（顶栏） */
+.btn-user {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
 }
 
 /* ---- M3 对话框 ---- */
