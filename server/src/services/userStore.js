@@ -79,9 +79,15 @@ function verifyPassword(password, stored) {
 
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{1,24}$/;
 
-function validateRegistration({ email, password, name }) {
+function validateEmailFormat(email) {
   if (!email || typeof email !== 'string') return '请输入邮箱';
   if (!EMAIL_RE.test(email)) return '邮箱格式不正确';
+  return null;
+}
+
+function validateRegistration({ email, password, name }) {
+  const emailError = validateEmailFormat(email);
+  if (emailError) return emailError;
   if (!password || typeof password !== 'string') return '请输入密码';
   if (password.length < 8) return '密码至少 8 位';
   if (password.length > 200) return '密码过长（上限 200 字符）';
@@ -149,6 +155,7 @@ module.exports = {
   findByEmail,
   hashPassword,
   publicUser,
+  validateEmailFormat,
   validateRegistration,
   verifyPassword
 };

@@ -6,6 +6,7 @@ const authRouter = require('./routes/auth');
 const jobsRouter = require('./routes/jobs');
 const jobManager = require('./services/jobManager');
 const sessionStore = require('./services/sessionStore');
+const verificationStore = require('./services/verificationStore');
 const { closeBrowser } = require('./services/browser');
 const { requireAuth } = require('./middleware/auth');
 
@@ -74,6 +75,18 @@ app.use((error, _req, res, _next) => {
 
 jobManager.startSweeper();
 sessionStore.startSweeper();
+verificationStore.startSweeper();
+
+// 邮件服务就绪提示（配置缺失时登录验证码模式不可用，密码登录不受影响）
+if (config.mail.enabled) {
+  if (config.mail.host && config.mail.username && config.mail.password) {
+    console.log(`[mail] 邮箱验证码服务已启用（${config.mail.host}:${config.mail.port}）`);
+  } else {
+    console.warn('[mail] MD2PDF_MAIL_ENABLED=true 但 host/username/password 不完整，验证码发送将失败');
+  }
+} else {
+  console.log('[mail] 邮箱验证码服务未启用（MD2PDF_MAIL_ENABLED!=true），注册功能不可用');
+}
 
 // 会话密钥兜底提示：生产环境未显式配置时每次重启会登出全部用户
 if (process.env.NODE_ENV === 'production' && !process.env.MD2PDF_SESSION_SECRET) {

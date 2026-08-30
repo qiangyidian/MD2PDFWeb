@@ -28,6 +28,28 @@ module.exports = {
     sessionAbsoluteDays: Number(process.env.MD2PDF_SESSION_ABSOLUTE_DAYS || 30) // 最长生命周期
   },
 
+  // 邮箱验证码（SMTP 配置对齐 SQL2ER 的 SQL2ER_MAIL_*，此处前缀 MD2PDF_MAIL_）
+  mail: {
+    enabled: process.env.MD2PDF_MAIL_ENABLED === 'true',
+    host: process.env.MD2PDF_MAIL_HOST || 'smtp.qq.com',
+    port: Number(process.env.MD2PDF_MAIL_PORT || 465),
+    username: process.env.MD2PDF_MAIL_USERNAME || '',
+    password: process.env.MD2PDF_MAIL_PASSWORD || '',
+    from: process.env.MD2PDF_MAIL_FROM || '',
+    auth: process.env.MD2PDF_MAIL_AUTH !== 'false',
+    // 调试用：邮件未启用时把验证码回显在响应里（本地开发用，生产必须 false）
+    debugEchoCodes: process.env.MD2PDF_DEBUG_ECHO_CODES === 'true',
+
+    verificationCodeTtlSeconds: Number(process.env.MD2PDF_VERIFICATION_CODE_TTL_SECONDS || 300),
+    verificationCodeRequestIntervalMs: Number(process.env.MD2PDF_VERIFICATION_CODE_REQUEST_INTERVAL_SECONDS || 60) * 1000,
+    verificationCodeBurstLimit: Number(process.env.MD2PDF_VERIFICATION_CODE_BURST_LIMIT || 5),
+    verificationCodeBurstWindowMs: Number(process.env.MD2PDF_VERIFICATION_CODE_BURST_WINDOW_SECONDS || 600) * 1000,
+    ipCodeRequestBurstLimit: Number(process.env.MD2PDF_IP_CODE_REQUEST_BURST_LIMIT || 20),
+    passwordLoginMaxAttempts: Number(process.env.MD2PDF_PASSWORD_LOGIN_MAX_ATTEMPTS || 5),
+    passwordLoginIpMaxAttempts: Number(process.env.MD2PDF_PASSWORD_LOGIN_IP_MAX_ATTEMPTS || 20),
+    passwordLoginLockoutMs: Number(process.env.MD2PDF_PASSWORD_LOGIN_LOCKOUT_SECONDS || 900) * 1000
+  },
+
   // 运行时数据目录：任务工作区（上传的源文件 + 生成的 PDF）
   dataDir: process.env.MD2PDF_DATA_DIR || path.join(ROOT, 'data'),
   get jobsDir() {

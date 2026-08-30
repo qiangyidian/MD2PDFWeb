@@ -25,19 +25,36 @@ async function request(url, options = {}) {
 }
 
 // ===== 认证 =====
-export function register({ email, password, name }) {
-  return request('/api/auth/register', {
+// 下发邮箱验证码（purpose: 'register' | 'login'）
+export function requestEmailCode(email, purpose) {
+  return request('/api/auth/email/request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, name })
+    body: JSON.stringify({ email, purpose })
   })
 }
 
-export function login({ email, password }) {
-  return request('/api/auth/login', {
+export function register({ email, password, name, code }) {
+  return request('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, name, code })
+  })
+}
+
+export function loginWithPassword({ email, password }) {
+  return request('/api/auth/login/password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password })
+  })
+}
+
+export function loginWithEmailCode({ email, code }) {
+  return request('/api/auth/login/email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, code })
   })
 }
 

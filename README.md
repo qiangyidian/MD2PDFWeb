@@ -21,15 +21,19 @@ nginx md2pdf.qiangi.top ──► / → 5002；/api/ → 8002
 
 **认证方案：opaque session token + HttpOnly Cookie（无 JWT、无第三方依赖，全部 Node 内置 crypto 实现）**
 
+**注册需要邮箱验证码；登录「密码」与「邮箱验证码」二选一**（邮件通道为 QQ 邮箱 SMTP，配置与 [SQL2ER](/root/SQL2ER) 共用的发信账号，`MD2PDF_MAIL_*` 环境变量）。
+
 | 环节 | 设计 | 威胁模型 |
 | --- | --- | --- |
 | 密码存储 | scrypt（N=16384,r=8,p=1）+ 16B 独立随机盐，`timingSafeEqual` 恒定时间校验 | 数据库泄露不还原明文；无彩虹表 |
 | 会话凭据 | 32B CSPRNG token，仅存于 HttpOnly+Secure+SameSite=Lax Cookie；磁盘只存 sha256(token) | XSS 偷不到 token；sessions.json 泄露无法反查 |
 | 会话生命周期 | 滑动过期 7 天 + 绝对过期 30 天；登出即刻服务端吊销；重启不登出（持久化） | 被盗 token 有限窗口；不用 JWT 正是为了可主动作废 |
+| 邮箱验证码 | 6 位数字、5 分钟有效、**用途命名空间隔离**（注册码不能当登录码用）、最多 3 次验证尝试后作废 | 被截获的码无法跨流程重放；在线穷举空间被封死 |
+| 验证码下发限流 | 单邮箱 60s 间隔 + 5 次/10min；单 IP 20 次/10min；发送失败自动退回配额 | 邮件轰炸 / 换邮箱绕过 |
+| 密码登录锁定 | 单邮箱 5 次失败/15min、单 IP 20 次/15min（IP 上限更高，避免 NAT 用户互相牵连） | 字典攻击 / 密码喷洒 |
 | 账号枚举 | 登录失败统一返回「邮箱或密码错误」；不存在的账号也跑一次 scrypt 拉平时序 | 无法探测有效邮箱 |
 | CSRF | 写操作强制 Origin/Referer 同源校验 + SameSite=Lax 双保险 | 跨站表单/IMG 无法携带凭据写操作 |
 | 越权隔离 | 任务绑定 `userId`，所有 job 接口先验所有权；他人任务与不存在任务同样返回 404 | 拿到任务 URL 也读不到别人的文件，且无法确认任务存在 |
-| 暴力破解 | 登录 10 次/15min、注册 5 次/15min 每 IP 限流 | 字典攻击成本高于密码价值 |
 | Puppeteer 内部通道 | 渲染图片走 `/api/jobs/internal/<token>/…`：回环直连 + 无 XFF + 一次性令牌三重判定 | 经 nginx 的外部请求必带 XFF，伪造路径/头均无法命中；令牌绝不出现在返回浏览器的 HTML |
 | 传输层 | nginx TLS + HSTS(180d)；后端只监听 127.0.0.1；启动时非回环监听告警 | 凭据不明文过网络 |
 | 数据文件 | users.json/sessions.json 权限 0600，tmp+rename 原子写 | 崩溃不留半截文件；其他系统用户不可读 |
@@ -45,7 +49,11 @@ nginx md2pdf.qiangi.top ──► / → 5002；/api/ → 8002
 openssl rand -hex 32   # → deploy/md2pdf-backend.service 的 MD2PDF_SESSION_SECRET
 systemctl daemon-reload && systemctl restart md2pdf-backend
 
-# 2. nginx 增加安全响应头（HSTS 等，配置已更新在 deploy/nginx-md2pdf.conf）
+# 2. 邮箱验证码：在同一个 unit 里填 MD2PDF_MAIL_*（QQ 邮箱授权码）
+#    MD2PDF_MAIL_ENABLED=true MD2PDF_MAIL_HOST=smtp.qq.com MD2PDF_MAIL_PORT=465
+#    MD2PDF_MAIL_USERNAME=… MD2PDF_MAIL_PASSWORD=…（授权码）MD2PDF_MAIL_FROM=…
+
+# 3. nginx 增加安全响应头（HSTS 等，配置已更新在 deploy/nginx-md2pdf.conf）
 nginx -t && systemctl reload nginx
 ```
 
@@ -145,8 +153,10 @@ certbot --nginx -d md2pdf.qiangi.top
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/auth/register` | 注册 `{email,password,name?}`（密码≥8位，限流 5/15min） |
-| POST | `/api/auth/login` | 登录 `{email,password}`，Set-Cookie 会话（限流 10/15min） |
+| POST | `/api/auth/email/request` | 下发邮箱验证码 `{email,purpose:register\|login}`（邮箱 60s 间隔 + 5/10min，IP 20/10min） |
+| POST | `/api/auth/register` | 注册 `{email,password,name?,code}`（必须携带 register 用途验证码） |
+| POST | `/api/auth/login/password` | 密码登录 `{email,password}`（5 次失败锁 15 分钟） |
+| POST | `/api/auth/login/email` | 验证码登录 `{email,code}`（login 用途码，一次性） |
 | POST | `/api/auth/logout` | 登出（即刻吊销会话） |
 | GET | `/api/auth/me` | 当前用户（前端刷新恢复登录态） |
 | POST | `/api/jobs` | multipart 上传；文件夹上传时逐文件附 `path` 相对路径字段 |
