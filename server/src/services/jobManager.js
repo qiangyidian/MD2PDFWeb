@@ -9,6 +9,7 @@ const { renderMarkdownToHtml } = require('./renderer');
 const { renderHtmlToPdf } = require('./pdf');
 const { extractZip } = require('./zipExtract');
 const { internalSourceBase } = require('../middleware/auth');
+const quotaStore = require('./quotaStore');
 const { buildOutputPath, isMarkdownFile, sanitizeRelPath, scanAllFiles, scanMarkdownFiles, safeJoin } = require('./fileScanner');
 
 const jobs = new Map(); // id -> job
@@ -94,6 +95,12 @@ function emit(job, event, payload) {
   job.events.emit('event', { event, payload });
 }
 
+// 余额变动推送给前端（SSE quota 事件 + 快照字段）
+function emitQuota(job, remaining) {
+  job.quotaRemaining = remaining;
+  emit(job, 'quota', { remaining });
+}
+
 function addRecord(job, record) {
   job.records.push({ time: nowString(), ...record });
 }
@@ -103,6 +110,7 @@ function snapshot(job) {
     id: job.id,
     status: job.status,
     queueInfo: job.queueInfo,
+    quotaRemaining: job.quotaRemaining,
     error: job.error,
     options: job.options,
     stats: job.stats,
@@ -223,21 +231,46 @@ async function convertOneFile(job, task) {
     throw Object.assign(new Error('已取消'), { cancelled: true });
   }
 
-  const markdown = await fs.readFile(inputAbs, 'utf8');
-  // 内部通道：令牌编入路径前缀（相对 URL 解析会丢弃 base 的 query，只能走 path）；
-  // 该 URL 只进 Puppeteer 的 HTML，绝不返回给浏览器
-  const relDir = task.inputRel.split('/').slice(0, -1).map(encodeURIComponent).join('/');
-  const dirBaseUrl = `${internalSourceBase(job.id, relDir ? `${relDir}/` : '')}`;
-  const html = renderMarkdownToHtml({
-    markdown,
-    title: path.basename(task.inputRel),
-    baseUrl: dirBaseUrl,
-    options: job.options
-  });
+  // ===== 配额预扣：每个文件渲染前扣 1，防并发漏扣 =====
+  // 匿名任务（userId 为空，理论上已不存在）不扣费直接放行
+  if (job.userId) {
+    const reserved = await quotaStore.tryReserve(job.userId, `job:${job.id}:${task.inputRel}`);
+    if (!reserved.ok) {
+      // 余额不足：该文件标记跳过并停掉整个任务后续（继续尝试只会重复失败）
+      job.quotaExhausted = true;
+      const error = new Error('剩余额度不足，该文件已跳过');
+      error.quotaExhausted = true;
+      throw error;
+    }
+    task.reserved = true;
+    emitQuota(job, reserved.remaining);
+  }
 
-  const { pdfBuffer, missingImages } = await renderHtmlToPdf(html, job.options);
-  await writePdfFile(job.outputDir, task.outputRel, pdfBuffer);
-  return { missingImages };
+  try {
+    const markdown = await fs.readFile(inputAbs, 'utf8');
+    // 内部通道：令牌编入路径前缀（相对 URL 解析会丢弃 base 的 query，只能走 path）；
+    // 该 URL 只进 Puppeteer 的 HTML，绝不返回给浏览器
+    const relDir = task.inputRel.split('/').slice(0, -1).map(encodeURIComponent).join('/');
+    const dirBaseUrl = `${internalSourceBase(job.id, relDir ? `${relDir}/` : '')}`;
+    const html = renderMarkdownToHtml({
+      markdown,
+      title: path.basename(task.inputRel),
+      baseUrl: dirBaseUrl,
+      options: job.options
+    });
+
+    const { pdfBuffer, missingImages } = await renderHtmlToPdf(html, job.options);
+    await writePdfFile(job.outputDir, task.outputRel, pdfBuffer);
+    return { missingImages };
+  } catch (error) {
+    // 真实渲染失败（非取消/非余额不足）：退回本次预扣，用户不为系统故障买单
+    if (task.reserved && !error.cancelled && !error.quotaExhausted) {
+      task.reserved = false;
+      const remaining = await quotaStore.release(job.userId, `refund:job:${job.id}:${task.inputRel}`);
+      emitQuota(job, remaining);
+    }
+    throw error;
+  }
 }
 
 async function writeConvertLog(job, cancelled) {
@@ -267,14 +300,16 @@ async function writeConvertLog(job, cancelled) {
 }
 
 // 任务收尾：写日志、置终态、发事件
+// cancelled 语义仅指「用户主动取消」；额度耗尽导致的提前停止仍视为正常完成（done），
+// 因为已完成的文件产出了 PDF，结果可下载
 async function finalizeJob(job, cancelled) {
-  if (cancelled) {
+  if (cancelled && !job.quotaExhausted) {
     addRecord(job, { status: '取消', inputRel: '', outputRel: '', reason: '用户取消转换' });
   }
 
-  await writeConvertLog(job, cancelled).catch(() => {});
+  await writeConvertLog(job, cancelled && !job.quotaExhausted).catch(() => {});
 
-  job.status = cancelled ? 'cancelled' : 'done';
+  job.status = cancelled && !job.quotaExhausted ? 'cancelled' : 'done';
   job.finishedAt = Date.now();
   job.queueInfo = null;
   emit(job, cancelled ? 'cancelled' : 'finished', {
@@ -306,9 +341,21 @@ async function startConversion(job, rawOptions) {
   job.options = normalizeOptions(rawOptions);
   job.cancelFlag = false;
   job.queueInfo = null;
+  job.quotaExhausted = false;
   job.stats = { total: 0, success: 0, failed: 0, skipped: 0 };
   job.tasks = [];
   job.records = [];
+
+  // 配额前置检查：余额为 0 直接拒绝（402），不进队列占位
+  if (job.userId) {
+    const remaining = await quotaStore.getRemaining(job.userId);
+    job.quotaRemaining = remaining;
+    if (remaining <= 0) {
+      const error = new Error('剩余处理额度为 0，无法开始转换。每注册用户赠送 50 次文档处理额度。');
+      error.statusCode = 402;
+      throw error;
+    }
+  }
 
   const files = await scanMarkdownFiles(job.sourceDir, { recursive: job.options.recursive });
   if (files.length === 0) {
@@ -382,6 +429,43 @@ async function startConversion(job, rawOptions) {
           if ((error && error.cancelled) || job.cancelFlag) {
             return; // 用户取消导致的静默丢弃，不计失败
           }
+
+          // 额度不足：计「跳过」不计「失败」，剩余文件全部标跳过后停掉任务
+          if (error && error.quotaExhausted) {
+            task.status = 'skipped';
+            task.error = '剩余额度不足，已跳过';
+
+            // 后续排队中的文件也一并标跳过（重试必然同样跳过，不留给队列）
+            let skippedNow = 1;
+            for (const pendingTask of job.tasks) {
+              if (pendingTask.status === 'pending' && pendingTask.index !== task.index) {
+                pendingTask.status = 'skipped';
+                pendingTask.error = '剩余额度不足，已跳过';
+                addRecord(job, {
+                  status: '跳过',
+                  inputRel: pendingTask.inputRel,
+                  outputRel: '',
+                  reason: '剩余额度不足'
+                });
+                emit(job, 'file-skip', { index: pendingTask.index, error: '剩余额度不足' });
+                skippedNow += 1;
+              }
+            }
+            job.stats.skipped += skippedNow;
+            addRecord(job, {
+              status: '跳过',
+              inputRel: task.inputRel,
+              outputRel: '',
+              reason: '剩余额度不足'
+            });
+            emit(job, 'file-skip', { index: task.index, error: '剩余额度不足' });
+            emitProgress(job, task);
+            if (job.queueHandle) scheduler.cancel(job.queueHandle);
+            job.quotaExhausted = true;
+            appendLog(job, 'warn', `剩余额度不足，共 ${skippedNow} 个文件未处理`);
+            return;
+          }
+
           const reason = friendlyError(error);
           task.status = 'failed';
           task.error = reason;

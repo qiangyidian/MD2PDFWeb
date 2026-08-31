@@ -17,7 +17,8 @@ const collapsed = ref(false)
 const STATUS_META = {
   pending: { icon: '⏳', title: '等待转换' },
   success: { icon: '✅', title: '转换成功' },
-  failed: { icon: '❌', title: '转换失败' }
+  failed: { icon: '❌', title: '转换失败' },
+  skipped: { icon: '⏭', title: '已跳过（额度不足）' }
 }
 
 function fileIcon(name) {

@@ -7,6 +7,8 @@ const jobsRouter = require('./routes/jobs');
 const jobManager = require('./services/jobManager');
 const sessionStore = require('./services/sessionStore');
 const verificationStore = require('./services/verificationStore');
+const quotaStore = require('./services/quotaStore');
+const userStore = require('./services/userStore');
 const { closeBrowser } = require('./services/browser');
 const { requireAuth } = require('./middleware/auth');
 
@@ -78,6 +80,18 @@ app.use((error, _req, res, _next) => {
 jobManager.startSweeper();
 sessionStore.startSweeper();
 verificationStore.startSweeper();
+
+// 配额初始化：给没有配额记录的存量用户补发免费额度（幂等，重启不会重复发）
+(async () => {
+  try {
+    const granted = await quotaStore.grantMissing(await userStore.allUserIds(), config.quota.freeGrant, '存量用户初始化赠送');
+    if (granted.length) {
+      console.log(`[quota] 已为 ${granted.length} 位存量用户补发 ${config.quota.freeGrant} 次免费额度`);
+    }
+  } catch (error) {
+    console.error('[quota] 存量用户额度补发失败:', error.message);
+  }
+})();
 
 // 邮件服务就绪提示（配置缺失时登录验证码模式不可用，密码登录不受影响）
 if (config.mail.enabled) {

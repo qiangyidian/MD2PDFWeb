@@ -9,18 +9,20 @@ import { uploadFiles, getJob, getQueueStats, startJob, cancelJob, openEventStrea
 // ---- 登录态：boot（会话恢复中）→ auth（未登录）→ app（已登录） ----
 const boot = ref('loading') // loading | auth | app
 const user = ref(null)
-// 剩余可处理文件数（配额接口就绪后接上；null = 未接通，徽章显示占位）
+// 剩余可处理文件数（配额：登录/转换实时更新；null = 未知，徽章显示占位）
 const remainingQuota = ref(null)
 
 // 会话过期（任意接口 401）→ 全局切回登录页
 setUnauthorizedHandler(() => {
   user.value = null
+  remainingQuota.value = null
   boot.value = 'auth'
   reset()
 })
 
-async function onAuthenticated(u) {
+async function onAuthenticated(u, quota) {
   user.value = u
+  if (typeof quota === 'number') remainingQuota.value = quota
   boot.value = 'app'
 }
 
@@ -29,14 +31,16 @@ async function onLogout() {
     await logout()
   } catch { /* 会话已失效也照常退出 */ }
   user.value = null
+  remainingQuota.value = null
   boot.value = 'auth'
   reset()
 }
 
-// 页面加载时恢复会话（Cookie 自动携带）
+// 页面加载时恢复会话（Cookie 自动携带；附带剩余额度）
 fetchMe()
-  .then(({ user: u }) => {
+  .then(({ user: u, quotaRemaining }) => {
     user.value = u
+    remainingQuota.value = quotaRemaining
     boot.value = 'app'
   })
   .catch(() => {
@@ -116,6 +120,11 @@ async function onFiles(items) {
   }
 }
 
+// 余额同步：SSE quota 事件与任务快照均携带最新剩余额度
+function applyQuota(value) {
+  if (typeof value === 'number') remainingQuota.value = value
+}
+
 async function begin() {
   if (!jobId.value) return
   error.value = ''
@@ -149,6 +158,7 @@ function applySnapshot(s) {
   stats.value = s.stats
   tasks.value = s.tasks
   if (s.queueInfo) queueInfo.value = s.queueInfo
+  applyQuota(s.quotaRemaining)
 }
 
 function listen() {
@@ -169,8 +179,11 @@ function listen() {
           stats.value = s.stats
           tasks.value = s.tasks
           if (s.status === 'queued' && s.queueInfo) queueInfo.value = s.queueInfo
+          applyQuota(s.quotaRemaining)
         }
       },
+      // 余额实时变动（每个文件预扣/退款后推送）
+      quota: (p) => applyQuota(p.remaining),
       // 排队中：位置/预计等待更新
       queued: (p) => {
         queueInfo.value = p
@@ -198,6 +211,8 @@ function listen() {
       log: (entry) => pushLog(entry),
       'file-success': (p) => applyFileEvent(p.index, { status: 'success', missingImages: p.missingImages }),
       'file-error': (p) => applyFileEvent(p.index, { status: 'failed', error: p.error }),
+      // 额度不足跳过的文件：树上以 skipped 态展示（灰色 ⏭）
+      'file-skip': (p) => applyFileEvent(p.index, { status: 'skipped', error: p.error }),
       finished: async () => {
         await refresh()
       },
@@ -232,6 +247,7 @@ async function refresh() {
     stats.value = snapshot.stats
     tasks.value = snapshot.tasks
     if (snapshot.status === 'failed') jobError.value = snapshot.error
+    applyQuota(snapshot.quotaRemaining)
     currentFile.value = ''
   } catch { /* 忽略 */ }
   phase.value = 'finished'
@@ -313,7 +329,11 @@ onBeforeUnmount(() => {
 
       <main class="container">
         <div class="card">
-          <FileDrop :disabled="phase === 'uploading'" @files="onFiles" />
+          <p v-if="remainingQuota === 0" class="quota-empty">
+            🚫 免费额度已用完（每注册用户赠送 50 次文档处理）。仍可上传与预览，
+            但开始转换需要额度。
+          </p>
+          <FileDrop :quota="remainingQuota" :disabled="phase === 'uploading'" @files="onFiles" />
           <p v-if="phase === 'uploading'" class="hint uploading">
             <span class="spinner" /> 正在上传与整理目录…
           </p>
@@ -479,6 +499,17 @@ onBeforeUnmount(() => {
   color: var(--err);
   font-size: 13.5px;
   margin: 12px 0 0;
+}
+
+/* 额度用尽提示 */
+.quota-empty {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  background: #fdf6ec;
+  border-left: 3px solid #d9a441;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--ink);
 }
 
 .queue-chip {

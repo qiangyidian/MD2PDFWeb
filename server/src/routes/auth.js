@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const config = require('../config');
 const userStore = require('../services/userStore');
 const sessionStore = require('../services/sessionStore');
+const quotaStore = require('../services/quotaStore');
 const verification = require('../services/verificationStore');
 const { MailError, sendVerificationEmail } = require('../services/mailer');
 const { requireAuth, serializeSessionCookie } = require('../middleware/auth');
@@ -144,10 +145,17 @@ router.post('/register', submitLimiter, async (req, res, next) => {
     }
 
     const user = await userStore.createUser({ email: normalized, password, name });
+
+    // 注册赠送免费额度（按成功渲染的 PDF 个数计）
+    await quotaStore.grant(user.id, config.quota.freeGrant, '注册赠送');
+
     const token = await sessionStore.create(user);
 
     setSessionCookie(res, token);
-    res.status(201).json({ user: userStore.publicUser(user) });
+    res.status(201).json({
+      user: userStore.publicUser(user),
+      quotaRemaining: config.quota.freeGrant
+    });
   } catch (error) {
     next(error);
   }
@@ -227,9 +235,10 @@ router.post('/logout', requireAuth, async (req, res, next) => {
   }
 });
 
-// 当前登录用户（前端刷新后恢复会话）
-router.get('/me', meLimiter, requireAuth, (req, res) => {
-  res.json({ user: req.user });
+// 当前登录用户（前端刷新后恢复会话；附带剩余额度）
+router.get('/me', meLimiter, requireAuth, async (req, res) => {
+  const quotaRemaining = await quotaStore.getRemaining(req.user.id);
+  res.json({ user: req.user, quotaRemaining });
 });
 
 module.exports = router;

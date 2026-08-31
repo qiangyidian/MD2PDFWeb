@@ -167,7 +167,7 @@ async function submit() {
     } else {
       result = await loginWithEmailCode({ email: trimmedEmail, code: code.value })
     }
-    emit('authenticated', result.user)
+    emit('authenticated', result.user, result.quotaRemaining)
   } catch (e) {
     error.value = e.message
   } finally {

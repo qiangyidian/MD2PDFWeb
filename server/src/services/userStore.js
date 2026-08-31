@@ -138,6 +138,12 @@ function publicUser(user) {
   return { id: user.id, email: user.email, name: user.name, createdAt: user.createdAt };
 }
 
+// 全部用户 id（配额初始化补发等运维场景用）
+async function allUserIds() {
+  await ensureLoaded();
+  return [...users.values()].map((u) => u.id);
+}
+
 // 启动时确保数据文件存在且权限正确（首次部署即收紧到 0600）
 (async () => {
   await ensureLoaded();
@@ -150,6 +156,7 @@ function publicUser(user) {
 })();
 
 module.exports = {
+  allUserIds,
   authenticate,
   createUser,
   findByEmail,

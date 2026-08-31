@@ -18,9 +18,12 @@ const emit = defineEmits(['logout'])
 
 const initial = computed(() => (props.user?.name || props.user?.email || '?').trim().charAt(0).toUpperCase())
 
-const quotaText = computed(() =>
-  props.quota === null || props.quota === undefined ? '剩余额度 --' : `剩余 ${props.quota} 个文件`
-)
+const quotaText = computed(() => {
+  if (props.quota === null || props.quota === undefined) return '剩余额度 --'
+  return props.quota > 0 ? `剩余 ${props.quota} 个文件` : '额度已用完'
+})
+
+const quotaExhausted = computed(() => props.quota === 0)
 </script>
 
 <template>
@@ -28,8 +31,9 @@ const quotaText = computed(() =>
     <span class="avatar" :title="user?.email">{{ initial }}</span>
     <span class="meta">
       <span class="name">{{ user?.name }}</span>
-      <span class="quota" :class="{ ready: quota !== null && quota !== undefined }">
+      <span class="quota" :class="{ ready: quota !== null && quota !== undefined, exhausted: quotaExhausted }">
         <template v-if="quota === null || quota === undefined">⏳ {{ quotaText }}</template>
+        <template v-else-if="quotaExhausted">🚫 {{ quotaText }}</template>
         <template v-else>📄 {{ quotaText }}</template>
       </span>
     </span>
@@ -88,6 +92,11 @@ const quotaText = computed(() =>
 
 .quota.ready {
   color: var(--accent);
+  font-weight: 600;
+}
+
+.quota.exhausted {
+  color: #b45309;
   font-weight: 600;
 }
 

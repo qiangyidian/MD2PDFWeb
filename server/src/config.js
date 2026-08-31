@@ -28,6 +28,11 @@ module.exports = {
     sessionAbsoluteDays: Number(process.env.MD2PDF_SESSION_ABSOLUTE_DAYS || 30) // 最长生命周期
   },
 
+  // 用户配额：每个注册用户免费赠送的可处理文档数（按成功渲染的 PDF 个数计）
+  quota: {
+    freeGrant: Number(process.env.MD2PDF_FREE_QUOTA || 50)
+  },
+
   // 邮箱验证码（SMTP 配置对齐 SQL2ER 的 SQL2ER_MAIL_*，此处前缀 MD2PDF_MAIL_）
   mail: {
     enabled: process.env.MD2PDF_MAIL_ENABLED === 'true',

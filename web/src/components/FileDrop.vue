@@ -1,8 +1,14 @@
 <script setup>
 import { ref, computed } from 'vue'
+
 import AppDialog from './AppDialog.vue'
 
 const emit = defineEmits(['files'])
+
+// 剩余处理额度（null = 未知）：确认弹窗里提示，余额不足时预警
+const props = defineProps({
+  quota: { type: Number, default: null }
+})
 
 const input = ref(null)
 const folderInput = ref(null)
@@ -30,6 +36,11 @@ function confirmUpload() {
   emit('files', pending.value)
   discardPending()
 }
+
+// 余额是否不足以覆盖本次全部文件（不足也可继续，转完额度即止）
+const willExhaust = computed(() =>
+  props.quota !== null && pending.value.length > props.quota
+)
 
 function discardPending() {
   pending.value = []
@@ -158,7 +169,15 @@ function onDragLeave() {
         来源：<b>{{ pendingSource }}</b>
         <template v-if="pendingSource !== '所选文件'">（保留目录结构）</template>
       </p>
-      <p class="cf-note">上传后自动进入工作台；任务文件保留 2 小时后自动清理。</p>
+      <p class="cf-line" :class="{ 'cf-warn': willExhaust }">
+        <template v-if="quota === null">剩余额度：--</template>
+        <template v-else-if="willExhaust">
+          ⚠️ 剩余额度 {{ quota }} 次，不足以处理全部 {{ pending.length }} 个文件——
+          额度用尽后其余文件将自动跳过
+        </template>
+        <template v-else>剩余额度：{{ quota }} 次 · 本次预计消耗 {{ pending.length }} 次</template>
+      </p>
+      <p class="cf-note">按成功生成的 PDF 个数计费，转换失败自动退回额度；任务文件保留 2 小时。</p>
       <template #actions>
         <button class="btn btn-ghost" @click="discardPending">取消</button>
         <button class="btn btn-primary" @click="confirmUpload">开始上传</button>
@@ -220,6 +239,14 @@ function onDragLeave() {
 .cf-num {
   color: var(--accent);
   font-size: 15px;
+}
+
+.cf-warn {
+  color: var(--ink);
+  background: #fdf6ec;
+  border-left: 3px solid #d9a441;
+  border-radius: 8px;
+  padding: 8px 10px;
 }
 
 .cf-note {
