@@ -187,3 +187,13 @@ export function adminCancelJob(id) {
 export function adminDeleteJob(id) {
   return request(`/api/admin/jobs/${id}`, { method: 'DELETE' })
 }
+
+// 兑换码：成功后返回新余额，交由父组件同步到 UserBadge 与 Workbench，
+// 不再额外拉一次 /api/auth/me（少一次往返，也避免与 SSE 的 quota 事件竞态）
+export function redeemCode(code) {
+  return request('/api/redeem', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code })
+  })
+}

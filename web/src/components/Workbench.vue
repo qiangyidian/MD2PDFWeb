@@ -29,7 +29,7 @@ const props = defineProps({
 
 const options = defineModel({ type: Object, required: true })
 
-const emit = defineEmits(['select', 'start', 'cancel', 'reset', 'logout'])
+const emit = defineEmits(['select', 'start', 'cancel', 'reset', 'logout', 'redeemed'])
 
 const selectedTask = computed(() =>
   props.tasks.find((t) => t.inputRel === props.selectedPath) || null
@@ -168,6 +168,7 @@ function onConfirmExit() {
           :user="user"
           :quota="quota"
           @logout="emit('logout')"
+          @redeemed="emit('redeemed', $event)"
         />
         <button v-if="phase === 'ready'" class="btn btn-primary btn-start" @click="emit('start')">
           🚀 开始转换

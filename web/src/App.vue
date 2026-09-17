@@ -138,6 +138,11 @@ function applyQuota(value) {
   if (typeof value === 'number') remainingQuota.value = value
 }
 
+// 兑换成功后端直接返回新余额（权威值），走同一条同步逻辑
+function onRedeemed(newRemaining) {
+  applyQuota(newRemaining)
+}
+
 async function begin() {
   if (!jobId.value) return
   error.value = ''
@@ -324,6 +329,7 @@ onBeforeUnmount(() => {
           :user="user"
           :quota="remainingQuota"
           @logout="onLogout"
+          @redeemed="onRedeemed"
           @select="selectedPath = $event"
           @start="begin"
           @cancel="cancel"
@@ -336,7 +342,13 @@ onBeforeUnmount(() => {
     <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' }">
       <!-- 全局用户标识（右上角悬浮） -->
       <div class="user-corner">
-        <UserBadge :user="user" :quota="remainingQuota" @logout="onLogout" @open-admin="showAdmin = true" />
+        <UserBadge
+          :user="user"
+          :quota="remainingQuota"
+          @logout="onLogout"
+          @open-admin="showAdmin = true"
+          @redeemed="onRedeemed"
+        />
       </div>
       <header class="hero">
         <div class="logo">M↓</div>
