@@ -127,3 +127,65 @@ test('用户被删除后其 token 立即失效', async () => {
   await pool.query('DELETE FROM users WHERE id = $1', [UID]);
   assert.equal(await sessionStore.resolve(token), null);
 });
+
+// ---- 清扫器 ----
+//
+// 这组用例针对一个真实事故：清扫器初版写成
+//   now() - ($1::bigint || ' milliseconds')::interval
+// PostgreSQL 解析 `NNN milliseconds` 用 int4，而绝对 TTL 是 30 天 = 2592000000，
+// 超过 int4 上限 2147483647，于是每 10 分钟抛一次
+// 「interval field value out of range」，静默地什么也没删——
+// 过期会话永不清理，表无限增长。线上连续刷了 20 分钟才被发现。
+
+test('sweepExpired 用生产的真实 TTL 执行不报错（溢出回归）', async () => {
+  // 刻意不传 now，走 config 里的真实 TTL：30 天的毫秒数正是溢出的那个值
+  assert.equal(typeof config.auth.sessionAbsoluteDays, 'number');
+  assert.ok(
+    config.auth.sessionAbsoluteDays * 24 * 60 * 60 * 1000 > 2 ** 31 - 1,
+    '本用例的前提是绝对 TTL 的毫秒数超过 int4 上限；若配置变小了，这条用例就不再覆盖溢出场景'
+  );
+
+  await assert.doesNotReject(() => sessionStore.sweepExpired());
+});
+
+test('sweepExpired 删除空闲超时的会话，保留活跃的', async () => {
+  const stale = await sessionStore.create({ id: UID, email: 'sess@example.com', name: '会话用户' });
+  const fresh = await sessionStore.create({ id: UID, email: 'sess@example.com', name: '会话用户' });
+
+  const idleMs = config.auth.sessionIdleDays * 24 * 60 * 60 * 1000;
+  await pool.query('UPDATE sessions SET last_seen_at = $1 WHERE token_id = $2', [
+    new Date(Date.now() - idleMs - 60_000),
+    crypto.createHash('sha256').update(stale).digest('hex')
+  ]);
+
+  const removed = await sessionStore.sweepExpired();
+  assert.equal(removed, 1, '只应删掉空闲超时的那条');
+  assert.equal(await sessionStore.resolve(stale), null);
+  assert.ok(await sessionStore.resolve(fresh), '活跃会话必须保留');
+});
+
+test('sweepExpired 删除绝对超时的会话（即使一直活跃）', async () => {
+  const token = await sessionStore.create({ id: UID, email: 'sess@example.com', name: '会话用户' });
+  const absMs = config.auth.sessionAbsoluteDays * 24 * 60 * 60 * 1000;
+  await pool.query('UPDATE sessions SET created_at = $1, last_seen_at = now() WHERE token_id = $2', [
+    new Date(Date.now() - absMs - 60_000),
+    crypto.createHash('sha256').update(token).digest('hex')
+  ]);
+
+  assert.equal(await sessionStore.sweepExpired(), 1);
+  assert.equal(await sessionStore.resolve(token), null);
+});
+
+test('sweepExpired 在空表上返回 0 而不是报错', async () => {
+  assert.equal(await sessionStore.sweepExpired(), 0);
+});
+
+test('sweepExpired 可重复调用（幂等）', async () => {
+  const token = await sessionStore.create({ id: UID, email: 'sess@example.com', name: '会话用户' });
+  const idleMs = config.auth.sessionIdleDays * 24 * 60 * 60 * 1000;
+  await pool.query('UPDATE sessions SET last_seen_at = $1', [new Date(Date.now() - idleMs - 1000)]);
+
+  assert.equal(await sessionStore.sweepExpired(), 1);
+  assert.equal(await sessionStore.sweepExpired(), 0);
+  assert.equal(await sessionStore.resolve(token), null);
+});

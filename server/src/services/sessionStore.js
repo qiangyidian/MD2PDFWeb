@@ -93,16 +93,30 @@ async function destroyAllForUser(userId) {
   return rowCount;
 }
 
-// 定期清扫过期会话（登录后存活，间隔 10 分钟）
+/**
+ * 清扫过期会话，返回删除条数。
+ *
+ * 截止时间在 JS 侧算好再作为 timestamptz 参数传入，不在 SQL 里做时间运算。
+ * 曾经的写法是 `now() - ($1::bigint || ' milliseconds')::interval`，
+ * 而 PostgreSQL 解析 `NNN milliseconds` 用的是 int4：30 天的毫秒数
+ * 2592000000 超过 int4 上限 2147483647，于是清扫每 10 分钟失败一次、
+ * 静默地什么也没删（线上日志里连续刷了 20 分钟才被发现）。
+ * 传时间戳既没有单位换算也没有溢出，且一眼能看懂。
+ */
+async function sweepExpired(now = Date.now()) {
+  const { rowCount } = await query(
+    `DELETE FROM sessions WHERE last_seen_at < $1 OR created_at < $2`,
+    [new Date(now - IDLE_TTL_MS), new Date(now - ABSOLUTE_TTL_MS)]
+  );
+  return rowCount;
+}
+
+// 定期清扫（登录后存活，间隔 10 分钟）
 function startSweeper() {
   const timer = setInterval(async () => {
     try {
-      await query(
-        `DELETE FROM sessions
-          WHERE last_seen_at < now() - ($1::bigint || ' milliseconds')::interval
-             OR created_at   < now() - ($2::bigint || ' milliseconds')::interval`,
-        [IDLE_TTL_MS, ABSOLUTE_TTL_MS]
-      );
+      const removed = await sweepExpired();
+      if (removed) console.log(`[auth] 已清扫 ${removed} 条过期会话`);
     } catch (error) {
       console.error('[auth] 过期会话清扫失败:', error.message);
     }
@@ -110,4 +124,4 @@ function startSweeper() {
   timer.unref?.();
 }
 
-module.exports = { create, destroy, destroyAllForUser, resolve, startSweeper };
+module.exports = { create, destroy, destroyAllForUser, resolve, startSweeper, sweepExpired };
