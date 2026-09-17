@@ -6,6 +6,8 @@ const config = require('../config');
 const userStore = require('../services/userStore');
 const sessionStore = require('../services/sessionStore');
 const quotaStore = require('../services/quotaStore');
+const redeemStore = require('../services/redeemStore');
+const { format } = require('../services/redeemCode');
 const jobManager = require('../services/jobManager');
 const scheduler = require('../services/scheduler');
 const { requireAuth, requireAdmin, sameOriginGuard } = require('../middleware/auth');
@@ -25,6 +27,11 @@ const router = express.Router();
  * - GET  /jobs             全量任务列表
  * - POST /jobs/:id/cancel  取消任意任务
  * - DELETE /jobs/:id       强制删除任务
+ * - GET  /redeem-stats            兑换码汇总
+ * - POST /redeem-codes            批量生成兑换码（面额/数量/截止时间/备注）
+ * - GET  /redeem-codes            兑换码列表（按状态/批次筛选 + 分页）
+ * - POST /redeem-codes/revoke     作废（按 id 列表或整批）
+ * - GET  /redeem-codes/export     导出某批次的 CSV
  *
  * 安全：requireAuth（实时角色）→ requireAdmin → sameOriginGuard（写操作防 CSRF）
  */
@@ -202,4 +209,113 @@ router.delete('/jobs/:id', async (req, res, next) => {
   }
 });
 
+// ---------- 兑换码管理 ----------
+
+// 码在库里存裸码，返回给管理端一律转成带连字符的展示格式，便于抄写与核对
+function toDisplay(row) {
+  return { ...row, display: format(row.code) };
+}
+
+const REDEEM_STATUS_LABEL = { unused: '未使用', used: '已使用', revoked: '已作废' };
+
+router.get('/redeem-stats', async (_req, res, next) => {
+  try {
+    res.json(await redeemStore.stats());
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/redeem-codes', async (req, res, next) => {
+  try {
+    const { value, count, expiresAt, note } = req.body || {};
+
+    let parsedExpiry = null;
+    if (expiresAt) {
+      parsedExpiry = new Date(expiresAt);
+      if (Number.isNaN(parsedExpiry.getTime())) {
+        res.status(400).json({ error: '截止时间格式不正确' });
+        return;
+      }
+    }
+
+    const { batchId, codes } = await redeemStore.createBatch({
+      value: Number(value),
+      count: Number(count),
+      expiresAt: parsedExpiry,
+      note: typeof note === 'string' ? note.slice(0, 200) : '',
+      createdBy: req.user.id
+    });
+
+    res.status(201).json({ batchId, count: codes.length, codes: codes.map(format) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/redeem-codes', async (req, res, next) => {
+  try {
+    const { status, batchId, limit, offset } = req.query || {};
+    const result = await redeemStore.listCodes({
+      status: status || '',
+      batchId: batchId || '',
+      limit,
+      offset
+    });
+    res.json({ total: result.total, codes: result.codes.map(toDisplay) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/redeem-codes/revoke', async (req, res, next) => {
+  try {
+    const { ids, batchId } = req.body || {};
+    const result = await redeemStore.revoke({
+      ids: Array.isArray(ids) ? ids : [],
+      batchId: typeof batchId === 'string' ? batchId : '',
+      revokedBy: req.user.id
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/redeem-codes/export', async (req, res, next) => {
+  try {
+    const batchId = req.query?.batchId || '';
+    if (!batchId) {
+      res.status(400).json({ error: '请指定要导出的批次' });
+      return;
+    }
+    const rows = await redeemStore.listForExport(batchId);
+
+    const header = ['兑换码', '面额', '状态', '生成时间', '截止时间', '兑付人', '兑付时间'];
+    const lines = [header.join(',')];
+
+    for (const row of rows) {
+      lines.push(
+        [
+          format(row.code),
+          row.value,
+          REDEEM_STATUS_LABEL[row.status] || row.status,
+          new Date(row.createdAt).toISOString(),
+          row.expiresAt ? new Date(row.expiresAt).toISOString() : '永久',
+          row.usedBy || '',
+          row.usedAt ? new Date(row.usedAt).toISOString() : ''
+        ].join(',')
+      );
+    }
+
+    // 前置 \ufeff：Excel 打开 UTF-8 CSV 需要 BOM，否则中文表头变乱码
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="redeem-codes-${batchId}.csv"`);
+    res.send(`\ufeff${lines.join('\r\n')}\r\n`);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;
+
