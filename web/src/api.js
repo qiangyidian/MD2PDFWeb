@@ -197,3 +197,40 @@ export function redeemCode(code) {
     body: JSON.stringify({ code })
   })
 }
+
+// ---- 管理端：兑换码 ----
+
+export function adminRedeemStats() {
+  return request('/api/admin/redeem-stats')
+}
+
+export function adminCreateRedeemCodes({ value, count, expiresAt, note }) {
+  return request('/api/admin/redeem-codes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value, count, expiresAt, note })
+  })
+}
+
+export function adminListRedeemCodes({ status = '', batchId = '', limit = 200, offset = 0 } = {}) {
+  const params = new URLSearchParams()
+  if (status) params.set('status', status)
+  if (batchId) params.set('batchId', batchId)
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+  return request(`/api/admin/redeem-codes?${params}`)
+}
+
+export function adminRevokeRedeemCodes({ ids, batchId }) {
+  return request('/api/admin/redeem-codes/revoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, batchId })
+  })
+}
+
+// 导出走原生下载而非 fetch：CSV 带 UTF-8 BOM、文件名由后端 Content-Disposition 决定，
+// 用 fetch 取文本会把这两者都丢掉
+export function redeemExportUrl(batchId) {
+  return `/api/admin/redeem-codes/export?batchId=${encodeURIComponent(batchId)}`
+}

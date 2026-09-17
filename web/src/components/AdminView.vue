@@ -4,16 +4,19 @@ import AppDialog from './AppDialog.vue'
 import {
   adminStats, adminListUsers, adminCreateUser, adminSetRole,
   adminAdjustQuota, adminResetPassword, adminDeleteUser,
-  adminListJobs, adminCancelJob, adminDeleteJob
+  adminListJobs, adminCancelJob, adminDeleteJob,
+  adminRedeemStats, adminCreateRedeemCodes, adminListRedeemCodes,
+  adminRevokeRedeemCodes, redeemExportUrl
 } from '../api'
 
 /**
  * 管理后台面板（仅 admin 角色可见；后端 /api/admin/* 二次校验）
  *
- * 三个标签页：
+ * 四个标签页：
  * - 概览：用户/任务/队列/内存水位
  * - 用户：列表 + 角色/余额/重置密码/删除/新建
  * - 任务：全量任务 + 取消/强制删除
+ * - 兑换码：批量生成 + 列表 + 作废 + 导出 CSV
  */
 
 const props = defineProps({
@@ -21,12 +24,23 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
-const tab = ref('overview') // overview | users | jobs
+const tab = ref('overview') // overview | users | jobs | redeem
 const loading = ref(false)
 const error = ref('')
 const stats = ref(null)
 const users = ref([])
 const jobs = ref([])
+
+// ---- 兑换码 ----
+const redeemStats = ref(null)
+const redeemCodes = ref([])
+const redeemTotal = ref(0)
+const redeemStatusFilter = ref('')
+const redeemBatchFilter = ref('')
+const redeemForm = ref({ value: 100, count: 10, expiresAt: '', note: '' })
+const generatedCodes = ref([])
+const generatedBatchId = ref('')
+const copyHint = ref('')
 
 // ---- 弹窗状态机（同一时刻最多一个弹窗） ----
 const dialog = ref(null) // null | 'createUser' | 'resetPwd' | 'deleteUser' | 'deleteJob' | 'quota'
@@ -47,15 +61,124 @@ async function refreshAll() {
   loading.value = true
   error.value = ''
   try {
-    const [s, u, j] = await Promise.all([adminStats(), adminListUsers(), adminListJobs()])
+    const [s, u, j, r] = await Promise.all([
+      adminStats(), adminListUsers(), adminListJobs(), adminRedeemStats()
+    ])
     stats.value = s
     users.value = u.users || []
     jobs.value = j.jobs || []
+    redeemStats.value = r
+    // 列表只在兑换码页签激活时刷新：码可能有上千条，没必要每 15s 全量拉一次
+    if (tab.value === 'redeem') await loadRedeemCodes()
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
+}
+
+// ---- 兑换码 ----
+
+async function openRedeemTab() {
+  tab.value = 'redeem'
+  try {
+    await loadRedeemCodes()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function loadRedeemCodes() {
+  const result = await adminListRedeemCodes({
+    status: redeemStatusFilter.value,
+    batchId: redeemBatchFilter.value
+  })
+  redeemCodes.value = result.codes
+  redeemTotal.value = result.total
+}
+
+function openGenerateCodes() {
+  dialogError.value = ''
+  copyHint.value = ''
+  dialog.value = 'generateCodes'
+}
+
+async function submitGenerateCodes() {
+  dialogBusy.value = true
+  dialogError.value = ''
+  try {
+    const result = await adminCreateRedeemCodes({
+      value: Number(redeemForm.value.value),
+      count: Number(redeemForm.value.count),
+      // datetime-local 给的是本地时间字符串，后端按本地时区解析即可
+      expiresAt: redeemForm.value.expiresAt || null,
+      note: redeemForm.value.note
+    })
+    generatedCodes.value = result.codes
+    generatedBatchId.value = result.batchId
+    dialog.value = 'generatedCodes'
+    redeemStats.value = await adminRedeemStats()
+    await loadRedeemCodes()
+  } catch (e) {
+    dialogError.value = e.message
+  } finally {
+    dialogBusy.value = false
+  }
+}
+
+async function copyGeneratedCodes() {
+  const text = generatedCodes.value.join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    copyHint.value = `已复制 ${generatedCodes.value.length} 个兑换码`
+  } catch {
+    // 非 HTTPS 或权限被拒时降级为提示用户手动复制
+    copyHint.value = '自动复制失败，请手动全选复制'
+  }
+  setTimeout(() => {
+    copyHint.value = ''
+  }, 2500)
+}
+
+// 导出走原生下载：CSV 带 BOM 且文件名由后端决定，用 fetch 取文本会丢掉这些
+function downloadGeneratedCodes() {
+  window.location.href = redeemExportUrl(generatedBatchId.value)
+}
+
+async function revokeBatch(batchId) {
+  if (!window.confirm('确认作废该批次的全部未使用兑换码？此操作不可撤销。')) return
+  try {
+    await adminRevokeRedeemCodes({ batchId })
+    redeemStats.value = await adminRedeemStats()
+    await loadRedeemCodes()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+async function revokeOne(code) {
+  if (!window.confirm(`确认作废 ${code.display}？`)) return
+  try {
+    await adminRevokeRedeemCodes({ ids: [code.id] })
+    redeemStats.value = await adminRedeemStats()
+    await loadRedeemCodes()
+  } catch (e) {
+    error.value = e.message
+  }
+}
+
+const REDEEM_STATUS = {
+  unused: ['未使用', 'ok'],
+  used: ['已使用', 'muted'],
+  revoked: ['已作废', 'err']
+}
+
+function redeemStatusLabel(s) {
+  return (REDEEM_STATUS[s] || [s, ''])[0]
+}
+
+function redeemStatusClass(s) {
+  return (REDEEM_STATUS[s] || ['', ''])[1]
 }
 
 onMounted(() => {
@@ -260,6 +383,9 @@ async function submitDeleteJob() {
       <button :class="{ active: tab === 'jobs' }" @click="tab = 'jobs'">
         任务 <span class="count">{{ jobs.length }}</span>
       </button>
+      <button :class="{ active: tab === 'redeem' }" @click="openRedeemTab">
+        兑换码 <span class="count">{{ redeemStats?.total ?? 0 }}</span>
+      </button>
     </nav>
 
     <p v-if="error" class="error">{{ error }}</p>
@@ -357,7 +483,7 @@ async function submitDeleteJob() {
     </section>
 
     <!-- ============ 任务管理 ============ -->
-    <section v-else class="panel">
+    <section v-else-if="tab === 'jobs'" class="panel">
       <div class="panel-head">
         <h3>任务列表（保留 2 小时窗口内）</h3>
       </div>
@@ -401,6 +527,74 @@ async function submitDeleteJob() {
     </section>
 
     <!-- ============ 弹窗 ============ -->
+    <!-- ============ 兑换码 ============ -->
+    <section v-else class="panel">
+      <div v-if="redeemStats" class="redeem-stats">
+        <span>总计 <b>{{ redeemStats.total }}</b></span>
+        <span>未使用 <b>{{ redeemStats.unused }}</b></span>
+        <span>已使用 <b>{{ redeemStats.used }}</b></span>
+        <span>已作废 <b>{{ redeemStats.revoked }}</b></span>
+        <span>已过期 <b>{{ redeemStats.expired }}</b></span>
+        <span>已发放额度 <b>{{ redeemStats.grantedTotal }}</b></span>
+        <span>批次 <b>{{ redeemStats.batchCount }}</b></span>
+      </div>
+
+      <div class="panel-head">
+        <h3>兑换码</h3>
+        <div class="redeem-actions">
+          <select v-model="redeemStatusFilter" @change="loadRedeemCodes">
+            <option value="">全部状态</option>
+            <option value="unused">未使用</option>
+            <option value="used">已使用</option>
+            <option value="revoked">已作废</option>
+          </select>
+          <input
+            v-model.trim="redeemBatchFilter"
+            class="batch-input"
+            placeholder="按批次 ID 筛选"
+            @keyup.enter="loadRedeemCodes"
+          />
+          <button class="ghost" @click="loadRedeemCodes">筛选</button>
+          <button class="primary" @click="openGenerateCodes">＋ 生成兑换码</button>
+        </div>
+      </div>
+
+      <p v-if="!redeemCodes.length" class="empty">暂无兑换码</p>
+      <div v-else class="table-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>兑换码</th>
+              <th>面额</th>
+              <th>状态</th>
+              <th>生成时间</th>
+              <th>截止时间</th>
+              <th>兑付人</th>
+              <th class="ops">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in redeemCodes" :key="c.id">
+              <td class="mono">{{ c.display }}</td>
+              <td>{{ c.value }}</td>
+              <td>
+                <span class="rstatus" :class="redeemStatusClass(c.status)">
+                  {{ redeemStatusLabel(c.status) }}
+                </span>
+              </td>
+              <td class="t">{{ fmtTime(c.createdAt) }}</td>
+              <td class="t">{{ c.expiresAt ? fmtTime(c.expiresAt) : '永久' }}</td>
+              <td class="t">{{ ownerLabel({ userId: c.usedBy }) }}</td>
+              <td class="ops">
+                <button v-if="c.status === 'unused'" class="link danger" @click="revokeOne(c)">作废</button>
+                <span v-else class="self-mark">—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <AppDialog :open="dialog === 'createUser'" title="新建用户" :scrim-close="false" @close="dialog = null">
       <div class="form">
         <label>邮箱<input v-model.trim="createUserForm.email" type="email" placeholder="user@example.com" /></label>
@@ -474,7 +668,40 @@ async function submitDeleteJob() {
       <template #actions>
         <button class="ghost" :disabled="dialogBusy" @click="dialog = null">取消</button>
         <button class="danger-btn" :disabled="dialogBusy" @click="submitDeleteJob">确认删除</button>
+      
+    <AppDialog :open="dialog === 'generateCodes'" title="生成兑换码" :scrim-close="false" @close="dialog = null">
+      <div class="form">
+        <label>每个码的面额<input v-model.number="redeemForm.value" type="number" min="1" max="100000" /></label>
+        <label>生成数量<input v-model.number="redeemForm.count" type="number" min="1" max="1000" /></label>
+        <label>截止时间<input v-model="redeemForm.expiresAt" type="datetime-local" /></label>
+        <label>备注<input v-model.trim="redeemForm.note" maxlength="200" placeholder="可留空，例如「淘宝 9 月批次」" /></label>
+        <p class="dlg-note">截止时间留空表示永久有效。一个码只能被兑换一次，兑换后立即标记为已用。</p>
+        <p v-if="dialogError" class="error">{{ dialogError }}</p>
+      </div>
+      <template #actions>
+        <button class="ghost" :disabled="dialogBusy" @click="dialog = null">取消</button>
+        <button class="primary" :disabled="dialogBusy" @click="submitGenerateCodes">
+          {{ dialogBusy ? '生成中…' : '生成' }}
+        </button>
       </template>
+    </AppDialog>
+
+    <AppDialog :open="dialog === 'generatedCodes'" title="兑换码已生成" :scrim-close="false" @close="dialog = null">
+      <div class="form">
+        <p class="dlg-note">
+          本批共 <b>{{ generatedCodes.length }}</b> 个，每个面额 <b>{{ redeemForm.value }}</b>。
+          请及时复制或下载保存——列表页可以再看，但导出更省事。
+        </p>
+        <textarea class="codes" readonly :value="generatedCodes.join('\n')" rows="10" />
+        <p v-if="copyHint" class="copy-hint">{{ copyHint }}</p>
+      </div>
+      <template #actions>
+        <button class="ghost" @click="downloadGeneratedCodes">下载 CSV</button>
+        <button class="primary" @click="copyGeneratedCodes">复制全部</button>
+      </template>
+    </AppDialog>
+
+</template>
     </AppDialog>
   </div>
 </template>
@@ -796,5 +1023,89 @@ button { cursor: pointer; }
 @media (max-width: 720px) {
   .admin-top { flex-direction: column; align-items: flex-start; }
   .panel { padding: 12px; }
+}
+
+/* ---- 兑换码 ---- */
+.redeem-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 16px;
+}
+
+.redeem-stats b {
+  color: var(--ink);
+}
+
+.redeem-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.redeem-actions select,
+.batch-input {
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.batch-input {
+  width: 200px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.rstatus {
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+.rstatus.ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.rstatus.muted {
+  background: #f1f5f9;
+  color: var(--ink-soft);
+}
+
+.rstatus.err {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.codes {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.copy-hint {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: #15803d;
+  font-weight: 600;
 }
 </style>
