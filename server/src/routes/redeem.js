@@ -1,5 +1,6 @@
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 
 const config = require('../config');
 const redeemStore = require('../services/redeemStore');
@@ -17,7 +18,7 @@ const router = express.Router();
  * - sameOriginGuard：写操作防 CSRF，与其余写接口一致
  * - 限流：码空间有 75 bit 熵，暴力枚举不可行，限流是防脚本刷
  *   与防数据库泄露后有人拿码表来撞。按用户 id 计数（同一账号多 IP 也受限），
- *   未登录时回退到 IP。
+ *   未登录时回退到归一化后的 IP（见 keyGenerator 注释）。
  */
 
 const redeemLimiter = rateLimit({
@@ -25,7 +26,11 @@ const redeemLimiter = rateLimit({
   limit: config.redeem.rateLimitPerMinute,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req) => req.user?.id || req.ip,
+  // 未登录时回退到 IP，必须走 ipKeyGenerator 归一化：
+  // 同一个 IPv6 地址有多种等价写法（::1 / 0:0:0:0:0:0:0:1 / ::ffff:127.0.0.1），
+  // 直接拿 req.ip 当键会让攻击者靠换写法拿到无限额度，等于限流形同虚设。
+  // express-rate-limit 会为此在加载时抛 ERR_ERL_KEY_GEN_IPV6。
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
   message: { error: '兑换尝试过于频繁，请稍后再试。' }
 });
 
