@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test test/"
+    "test": "mkdir -p /tmp/md2pdf-test-data && MD2PDF_DATABASE_URL=\"${MD2PDF_TEST_DATABASE_URL:-postgres://md2pdf:md2pdf@127.0.0.1:5432/md2pdf_test}\" MD2PDF_DATA_DIR=/tmp/md2pdf-test-data node --test test/"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
