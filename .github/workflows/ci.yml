@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支的新推送取消上一次未跑完的任务，省 runner 也省等待
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 后端：起一个 PostgreSQL service 容器跑全部测试
+  #
+  # 数据库名必须带 _test 后缀——test/helpers/db.js 的安全阀以库名判定，
+  # 非 _test 结尾的库一律拒绝建表/清表。这是 2026-09-17 那次事故留下的护栏：
+  # 测试进程绝不允许碰到真实数据。
+  test-server:
+    name: 后端测试
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: md2pdf
+          POSTGRES_PASSWORD: md2pdf
+          POSTGRES_DB: md2pdf_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # 测试脚本优先读这个变量，未设置时才回落到 127.0.0.1 上的本地测试库
+      MD2PDF_TEST_DATABASE_URL: postgres://md2pdf:md2pdf@127.0.0.1:5432/md2pdf_test
+      # 测试不启动浏览器（只 require puppeteer 的类型与入口），跳过 Chromium 下载
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: 安装依赖
+        working-directory: server
+        run: npm ci
+
+      - name: 跑测试
+        working-directory: server
+        run: npm test
+
+  # 前端：构建必须通过（语法错误、缺失导出都在这一步暴露）
+  build-web:
+    name: 前端构建
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装依赖
+        working-directory: web
+        run: npm ci
+
+      - name: 构建
+        working-directory: web
+        run: npm run build
