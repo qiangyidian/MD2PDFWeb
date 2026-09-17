@@ -19,6 +19,13 @@ const config = require('../../src/config');
  *    判断依据是 SELECT current_database() 而非解析连接串——pg 在
  *    connectionString 模式下不会把库名填进 pool.options.database（那是空的，
  *    会让阀门永远放行或永远拦截），而数据库自己的回答无论连接怎么配都成立。
+ *
+ * 前提：本套测试**必须串行执行**（npm test 已带 --test-concurrency=1）。
+ * 各测试文件共用同一个测试库，且都在 beforeEach 里 truncateAll()；
+ * 并发跑时 A 文件清表会抹掉 B 文件刚插入的用户，B 的 sessions 插入随即撞外键。
+ * 这个缺陷在 2 核服务器上（默认并发度 1）完全看不出来，
+ * 直到 GitHub runner（4 核）上 CI 红了才暴露——
+ * 别再把它当成「跑得慢」而顺手去掉那个参数。
  */
 
 // 这个检查必须在模块加载时立刻执行，而不是等某个用例调到它：
