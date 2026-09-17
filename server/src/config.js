@@ -41,6 +41,12 @@ module.exports = {
     freeGrant: Number(process.env.MD2PDF_FREE_QUOTA || 50)
   },
 
+  // 兑换码限流：码空间 75 bit 熵，暴力枚举不可行，限流用于防脚本刷
+  // 与防数据库泄露后拿码表来撞。按用户 id 分桶（未登录回退 IP）。
+  redeem: {
+    rateLimitPerMinute: Number(process.env.MD2PDF_REDEEM_RATE_LIMIT_PER_MINUTE || 10)
+  },
+
   // 管理员引导：启动时将这些邮箱（逗号分隔）对应的账号提权为 admin（幂等）。
   // 这是产生首个管理员的通道；之后的角色维护在管理后台进行。
   // 注意：管理员转换任务不消耗额度（见 jobManager）

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const config = require('./config');
 const authRouter = require('./routes/auth');
 const adminRouter = require('./routes/admin');
+const redeemRouter = require('./routes/redeem');
 const jobsRouter = require('./routes/jobs');
 const jobManager = require('./services/jobManager');
 const sessionStore = require('./services/sessionStore');
@@ -54,6 +55,9 @@ app.get('/api/queue', requireAuth, (req, res) => {
 });
 
 app.use('/api/jobs', jobsRouter);
+
+// 用户端兑换码（requireAuth + 同源校验 + 限流在路由内部）
+app.use('/api/redeem', redeemRouter);
 
 // 管理后台（requireAuth + requireAdmin + 同源校验在路由内部）
 app.use('/api/admin', adminRouter);
