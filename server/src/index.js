@@ -12,6 +12,8 @@ const quotaStore = require('./services/quotaStore');
 const userStore = require('./services/userStore');
 const { closeBrowser } = require('./services/browser');
 const { requireAuth } = require('./middleware/auth');
+const { migrate } = require('./db/migrate');
+const { closePool } = require('./db/pool');
 
 const scheduler = require('./services/scheduler');
 
@@ -85,17 +87,6 @@ jobManager.startSweeper();
 sessionStore.startSweeper();
 verificationStore.startSweeper();
 
-// 配额初始化：给没有配额记录的存量用户补发免费额度（幂等，重启不会重复发）
-(async () => {
-  try {
-    const granted = await quotaStore.grantMissing(await userStore.allUserIds(), config.quota.freeGrant, '存量用户初始化赠送');
-    if (granted.length) {
-      console.log(`[quota] 已为 ${granted.length} 位存量用户补发 ${config.quota.freeGrant} 次免费额度`);
-    }
-  } catch (error) {
-    console.error('[quota] 存量用户额度补发失败:', error.message);
-  }
-})();
 
 // 邮件服务就绪提示（配置缺失时登录验证码模式不可用，密码登录不受影响）
 if (config.mail.enabled) {
@@ -122,15 +113,47 @@ if (!hostIsLoopback) {
   );
 }
 
-const server = app.listen(config.port, config.host, () => {
-  console.log(`[md2pdf] 后端已启动: http://${config.host}:${config.port}`);
+let server = null;
+
+async function main() {
+  // 数据库迁移必须先于任何存储访问。失败即退出——绝不静默降级回文件存储，
+  // 双写两套存储的数据分裂比直接宕机更难排查。
+  const { applied } = await migrate();
+  if (applied.length) console.log(`[db] 本次启动应用了 ${applied.length} 个迁移`);
+
+  // 管理员引导（幂等）：把 MD2PDF_ADMIN_EMAILS 中的邮箱提权为 admin。
+  // 这是产生首个管理员的通道，之后的角色维护在管理后台进行。
+  const promoted = await userStore.bootstrapAdmins(config.admin.bootstrapEmails);
+  if (promoted.length) {
+    console.log(`[auth] 已将 ${promoted.join(', ')} 提升为管理员（MD2PDF_ADMIN_EMAILS）`);
+  }
+
+  // 配额初始化：给没有配额记录的存量用户补发免费额度（幂等，重启不会重复发）
+  const granted = await quotaStore.grantMissing(
+    await userStore.allUserIds(),
+    config.quota.freeGrant,
+    '存量用户初始化赠送'
+  );
+  if (granted.length) {
+    console.log(`[quota] 已为 ${granted.length} 位存量用户补发 ${config.quota.freeGrant} 次免费额度`);
+  }
+
+  server = app.listen(config.port, config.host, () => {
+    console.log(`[md2pdf] 后端已启动: http://${config.host}:${config.port}`);
+  });
+}
+
+main().catch((error) => {
+  console.error('[md2pdf] 启动失败:', error.message);
+  process.exit(1);
 });
 
 // 优雅退出：关闭 Chromium 与 HTTP 服务
 async function shutdown(signal) {
   console.log(`[md2pdf] 收到 ${signal}，正在退出…`);
-  server.close();
+  if (server) server.close();
   await closeBrowser();
+  await closePool().catch(() => {});
   process.exit(0);
 }
 

@@ -45,10 +45,12 @@ async function closePool() {
   await pool.end();
 }
 
-async function insertUser({ id, email, name = 'U', role = 'user', hash = 'scrypt$1$1$1$aa$bb' }) {
+// createdAt 可选：涉及排序的用例必须显式指定，否则两个用户落在同一毫秒时排序不确定
+async function insertUser({ id, email, name = 'U', role = 'user', hash = 'scrypt$1$1$1$aa$bb', createdAt = null }) {
   await pool.query(
-    `INSERT INTO users (id, email, name, password_hash, role) VALUES ($1, $2, $3, $4, $5)`,
-    [id, email, name, hash, role]
+    `INSERT INTO users (id, email, name, password_hash, role, created_at)
+     VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()))`,
+    [id, email, name, hash, role, createdAt === null ? null : new Date(createdAt)]
   );
   return id;
 }

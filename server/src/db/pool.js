@@ -2,6 +2,16 @@ const { Pool } = require('pg');
 
 const config = require('../config');
 
+// 缺失连接串时立即失败，而不是让 pg 回退到 PG* 环境变量或默认库。
+// 回退的后果是：连上一个「碰巧存在」的库、建出一套空表、站点看起来像
+// 「所有用户都没了」。响亮地拒绝启动远好过静默地跑在错误的库上。
+if (!config.databaseUrl) {
+  throw new Error(
+    '[db] 未配置 MD2PDF_DATABASE_URL。账号/额度/会话/兑换码的权威存储是 PostgreSQL，' +
+      '缺失该配置时拒绝启动（避免 pg 回退到默认库造成数据分裂）。'
+  );
+}
+
 /**
  * PostgreSQL 连接池单例。
  *
