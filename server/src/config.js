@@ -6,6 +6,10 @@ const ROOT = path.resolve(__dirname, '..');
 
 const port = Number(process.env.PORT || 8002);
 
+// PostgreSQL 连接串（账号/额度/会话/兑换码的权威存储）。
+// 未设置时启动即失败——绝不静默降级回文件存储，双存储的数据分裂比宕机更难查。
+const databaseUrl = process.env.MD2PDF_DATABASE_URL || '';
+
 // 会话签名兜底密钥：生产必须显式设置 MD2PDF_SESSION_SECRET（长度>=32），
 // 未设置时生成随机值（进程重启后旧会话全部失效，不影响正确性，只是体验降级）
 const sessionSecret =
@@ -15,6 +19,7 @@ const sessionSecret =
 
 module.exports = {
   port,
+  databaseUrl,
   host: process.env.HOST || '127.0.0.1',
   isProduction: process.env.NODE_ENV === 'production',
 
