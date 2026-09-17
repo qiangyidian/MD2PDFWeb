@@ -30,7 +30,10 @@ module.exports = {
     // 仅在 HTTPS（含 nginx 反代 https）下给 Cookie 加 Secure；本地 http 调试不加
     cookieSecure: process.env.MD2PDF_COOKIE_SECURE !== '0' && process.env.NODE_ENV === 'production',
     sessionIdleDays: Number(process.env.MD2PDF_SESSION_IDLE_DAYS || 7),       // 不活跃过期
-    sessionAbsoluteDays: Number(process.env.MD2PDF_SESSION_ABSOLUTE_DAYS || 30) // 最长生命周期
+    sessionAbsoluteDays: Number(process.env.MD2PDF_SESSION_ABSOLUTE_DAYS || 30), // 最长生命周期
+    // 滑动续期的写库节流窗口：距上次续期超过该值才 UPDATE。
+    // 不加节流的话每个已登录请求都会写一次 sessions，读放大成写放大。
+    sessionTouchIntervalMs: Number(process.env.MD2PDF_SESSION_TOUCH_INTERVAL_SECONDS || 60) * 1000
   },
 
   // 用户配额：每个注册用户免费赠送的可处理文档数（按成功渲染的 PDF 个数计）

@@ -1,11 +1,10 @@
-const fs = require('node:fs/promises');
-const path = require('node:path');
 const crypto = require('node:crypto');
 
 const config = require('../config');
+const { query } = require('../db/pool');
 
 /**
- * 会话存储（ opaque 随机 token + 服务端会话表）
+ * 会话存储（PostgreSQL）
  *
  * 为什么不用 JWT：本服务是单进程 Express，无跨服务校验诉求；
  * opaque token 可以随时服务端吊销（登出即失效），不存在 JWT 无法主动作废的问题，
@@ -13,136 +12,100 @@ const config = require('../config');
  *
  * 安全设计：
  * - token 为 32 字节 CSPRNG（base64url），仅通过 HttpOnly+Secure+SameSite=Lax Cookie 传输，
- *   XSS 拿不到；磁盘上只存 sha256(token)，库文件泄露也无法反查出 token
+ *   XSS 拿不到；库里只存 sha256(token)，库被拖也无法反查出 token
  * - 滑动过期（默认 7 天活跃续期）+ 绝对过期（默认 30 天强制重新登录）
- * - 进程重启会话保持（sessions.json 持久化），用户不被登出
+ * - 进程重启会话保持，用户不被登出
  * - 定期清扫过期会话，防表无限膨胀
+ *
+ * 迁移到 PG 后的取舍：滑动续期做写库节流。原实现写进程内 Map，
+ * 每请求改一次内存零成本；现在每请求一次 UPDATE 就把读放大成了写放大，
+ * 因此距上次续期不足 sessionTouchIntervalMs 时跳过写入。
+ * 代价是 last_seen_at 最多滞后一个窗口，空闲过期判定因此有最多一个窗口的宽限，
+ * 对 7 天量级的 TTL 可忽略。
  */
 
-const sessionsFile = path.join(config.dataDir, 'sessions.json');
-
-const IDLE_TTL_MS = config.auth.sessionIdleDays * 24 * 60 * 60 * 1000;       // 不活跃过期
-const ABSOLUTE_TTL_MS = config.auth.sessionAbsoluteDays * 24 * 60 * 60 * 1000; // 最长生命周期
-
-/** @type {Map<string, object>} sha256(token) -> session */
-let sessions = new Map();
-let loadPromise = null;
-let persistTimer = null;
+const IDLE_TTL_MS = config.auth.sessionIdleDays * 24 * 60 * 60 * 1000;
+const ABSOLUTE_TTL_MS = config.auth.sessionAbsoluteDays * 24 * 60 * 60 * 1000;
 
 function tokenId(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-async function load() {
-  try {
-    const raw = await fs.readFile(sessionsFile, 'utf8');
-    const entries = JSON.parse(raw);
-    const now = Date.now();
-    sessions = new Map();
-    for (const s of entries) {
-      if (now - s.lastSeenAt < IDLE_TTL_MS && now - s.createdAt < ABSOLUTE_TTL_MS) {
-        sessions.set(s.tokenId, s);
-      }
-    }
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error('[auth] sessions.json 读取失败，按空表启动:', error.message);
-    }
-    sessions = new Map();
-  }
-}
-
-function ensureLoaded() {
-  if (!loadPromise) loadPromise = load();
-  return loadPromise;
-}
-
-// 合并写：短窗口内多次变更只落一次盘，避免登录高峰频繁 IO
-function schedulePersist() {
-  if (persistTimer) return;
-  persistTimer = setTimeout(async () => {
-    persistTimer = null;
-    try {
-      const payload = JSON.stringify([...sessions.values()], null, 2);
-      const tmp = `${sessionsFile}.${crypto.randomUUID()}.tmp`;
-      await fs.mkdir(config.dataDir, { recursive: true });
-      await fs.writeFile(tmp, payload, { mode: 0o600 });
-      await fs.rename(tmp, sessionsFile);
-    } catch (error) {
-      console.error('[auth] sessions.json 写入失败:', error.message);
-    }
-  }, 500);
-  persistTimer.unref?.();
-}
-
-function isExpired(session, now = Date.now()) {
-  return now - session.lastSeenAt >= IDLE_TTL_MS || now - session.createdAt >= ABSOLUTE_TTL_MS;
-}
-
-// 创建会话，返回明文 token（仅在创建时出现一次）
 async function create(user) {
-  await ensureLoaded();
   const token = crypto.randomBytes(32).toString('base64url');
-  const session = {
-    tokenId: tokenId(token),
-    userId: user.id,
-    email: user.email,
-    name: user.name,
-    createdAt: Date.now(),
-    lastSeenAt: Date.now()
-  };
-  sessions.set(session.tokenId, session);
-  schedulePersist();
+  await query(
+    `INSERT INTO sessions (token_id, user_id, created_at, last_seen_at)
+     VALUES ($1, $2, now(), now())`,
+    [tokenId(token), user.id]
+  );
   return token;
 }
 
-// 校验并续期（滑动过期）
 async function resolve(token) {
-  await ensureLoaded();
   if (!token) return null;
-  const session = sessions.get(tokenId(token));
-  if (!session) return null;
-  if (isExpired(session)) {
-    sessions.delete(session.tokenId);
-    schedulePersist();
+  const id = tokenId(token);
+
+  // 用户信息从 users 表实时联查，不在会话里冗余存储：
+  // 管理员改了昵称、删了账号，下一次请求即生效
+  const { rows } = await query(
+    `SELECT s.user_id, s.created_at, s.last_seen_at, u.email, u.name
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+      WHERE s.token_id = $1`,
+    [id]
+  );
+  const row = rows[0];
+  if (!row) return null;
+
+  const now = Date.now();
+  if (
+    now - row.last_seen_at.getTime() >= IDLE_TTL_MS ||
+    now - row.created_at.getTime() >= ABSOLUTE_TTL_MS
+  ) {
+    // 过期即删：否则这行会一直留到下一次清扫，期间每次请求都白读一次
+    await query('DELETE FROM sessions WHERE token_id = $1', [id]);
     return null;
   }
-  session.lastSeenAt = Date.now();
-  schedulePersist();
-  return session;
+
+  // 滑动续期（节流）：超过窗口才写库
+  if (now - row.last_seen_at.getTime() > config.auth.sessionTouchIntervalMs) {
+    await query('UPDATE sessions SET last_seen_at = now() WHERE token_id = $1', [id]);
+  }
+
+  return {
+    tokenId: id,
+    userId: row.user_id,
+    email: row.email,
+    name: row.name,
+    createdAt: row.created_at.getTime(),
+    lastSeenAt: now
+  };
 }
 
 async function destroy(token) {
-  await ensureLoaded();
-  if (token && sessions.delete(tokenId(token))) schedulePersist();
+  if (!token) return;
+  await query('DELETE FROM sessions WHERE token_id = $1', [tokenId(token)]);
 }
 
 // 吊销某用户的全部会话（管理员重置密码/删除用户时调用，即刻踢下线）
 async function destroyAllForUser(userId) {
-  await ensureLoaded();
-  let removed = 0;
-  for (const [id, s] of sessions) {
-    if (s.userId === userId) {
-      sessions.delete(id);
-      removed += 1;
-    }
-  }
-  if (removed) schedulePersist();
-  return removed;
+  const { rowCount } = await query('DELETE FROM sessions WHERE user_id = $1', [userId]);
+  return rowCount;
 }
 
-// 定期清扫 + 持久化兜底（登录后存活，间隔 10 分钟）
+// 定期清扫过期会话（登录后存活，间隔 10 分钟）
 function startSweeper() {
-  const timer = setInterval(() => {
-    const now = Date.now();
-    let dirty = false;
-    for (const [id, s] of sessions) {
-      if (isExpired(s, now)) {
-        sessions.delete(id);
-        dirty = true;
-      }
+  const timer = setInterval(async () => {
+    try {
+      await query(
+        `DELETE FROM sessions
+          WHERE last_seen_at < now() - ($1::bigint || ' milliseconds')::interval
+             OR created_at   < now() - ($2::bigint || ' milliseconds')::interval`,
+        [IDLE_TTL_MS, ABSOLUTE_TTL_MS]
+      );
+    } catch (error) {
+      console.error('[auth] 过期会话清扫失败:', error.message);
     }
-    if (dirty) schedulePersist();
   }, config.limits.sweepIntervalMs);
   timer.unref?.();
 }
