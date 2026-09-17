@@ -33,6 +33,16 @@ module.exports = {
     freeGrant: Number(process.env.MD2PDF_FREE_QUOTA || 50)
   },
 
+  // 管理员引导：启动时将这些邮箱（逗号分隔）对应的账号提权为 admin（幂等）。
+  // 这是产生首个管理员的通道；之后的角色维护在管理后台进行。
+  // 注意：管理员转换任务不消耗额度（见 jobManager）
+  admin: {
+    bootstrapEmails: String(process.env.MD2PDF_ADMIN_EMAILS || '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  },
+
   // 邮箱验证码（SMTP 配置对齐 SQL2ER 的 SQL2ER_MAIL_*，此处前缀 MD2PDF_MAIL_）
   mail: {
     enabled: process.env.MD2PDF_MAIL_ENABLED === 'true',

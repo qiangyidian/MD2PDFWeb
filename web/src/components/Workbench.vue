@@ -174,7 +174,13 @@ function onConfirmExit() {
         </button>
         <button v-else-if="isConverting" class="btn btn-ghost" @click="emit('cancel')">取消</button>
         <template v-else>
-          <a class="link" :href="fileUrl(jobId, 'log')" title="下载转换日志">convert-log.txt</a>
+          <!-- 转换日志仅在出问题时展示（排查用）；全部成功时从简，日志已随 ZIP 一起打包 -->
+          <a
+            v-if="failedCount || jobError || jobStatus === 'cancelled'"
+            class="link"
+            :href="fileUrl(jobId, 'log')"
+            title="下载转换日志"
+          >convert-log.txt</a>
           <a v-if="successCount" class="btn btn-primary" :href="jobZipUrl(jobId)">
             ⬇️ 下载全部 PDF（{{ successCount }}）
           </a>

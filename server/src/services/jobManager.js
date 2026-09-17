@@ -231,9 +231,11 @@ async function convertOneFile(job, task) {
     throw Object.assign(new Error('已取消'), { cancelled: true });
   }
 
+  // 管理员任务免配额（quotaExempt 由 startConversion 依据发起者角色设置）
+
   // ===== 配额预扣：每个文件渲染前扣 1，防并发漏扣 =====
   // 匿名任务（userId 为空，理论上已不存在）不扣费直接放行
-  if (job.userId) {
+  if (job.userId && !job.quotaExempt) {
     const reserved = await quotaStore.tryReserve(job.userId, `job:${job.id}:${task.inputRel}`);
     if (!reserved.ok) {
       // 余额不足：该文件标记跳过并停掉整个任务后续（继续尝试只会重复失败）
@@ -264,7 +266,7 @@ async function convertOneFile(job, task) {
     return { missingImages };
   } catch (error) {
     // 真实渲染失败（非取消/非余额不足）：退回本次预扣，用户不为系统故障买单
-    if (task.reserved && !error.cancelled && !error.quotaExhausted) {
+    if (task.reserved && job.userId && !error.cancelled && !error.quotaExhausted) {
       task.reserved = false;
       const remaining = await quotaStore.release(job.userId, `refund:job:${job.id}:${task.inputRel}`);
       emitQuota(job, remaining);
@@ -331,7 +333,8 @@ function emitProgress(job, task) {
 }
 
 // 启动转换：准备任务后交给调度器（多用户消息队列）排队执行
-async function startConversion(job, rawOptions) {
+// opts.isAdmin：发起者为管理员时任务免配额（预扣/前置检查/余额不足跳过全部豁免）
+async function startConversion(job, rawOptions, opts = {}) {
   if (job.status === 'converting' || job.status === 'queued') {
     const error = new Error('该任务已在队列或转换中');
     error.statusCode = 409;
@@ -342,12 +345,13 @@ async function startConversion(job, rawOptions) {
   job.cancelFlag = false;
   job.queueInfo = null;
   job.quotaExhausted = false;
+  job.quotaExempt = !!opts.isAdmin && !!job.userId;
   job.stats = { total: 0, success: 0, failed: 0, skipped: 0 };
   job.tasks = [];
   job.records = [];
 
-  // 配额前置检查：余额为 0 直接拒绝（402），不进队列占位
-  if (job.userId) {
+  // 配额前置检查：余额为 0 直接拒绝（402），不进队列占位（管理员豁免）
+  if (job.userId && !job.quotaExempt) {
     const remaining = await quotaStore.getRemaining(job.userId);
     job.quotaRemaining = remaining;
     if (remaining <= 0) {
@@ -548,12 +552,41 @@ function startSweeper() {
   }, config.limits.sweepIntervalMs).unref();
 }
 
+// ==================== 管理员视图 ====================
+
+// 全量任务列表（管理后台）：所有用户的任务概览，按创建时间倒序
+function listJobsForAdmin() {
+  return [...jobs.values()]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((job) => ({
+      id: job.id,
+      userId: job.userId,
+      status: job.status,
+      stats: job.stats,
+      createdAt: job.createdAt,
+      finishedAt: job.finishedAt,
+      totalFiles: job.tasks.length,
+      quotaExempt: !!job.quotaExempt,
+      options: job.options
+    }));
+}
+
+// 删除任务（管理员强制清理）：从队列摘除并删除目录
+async function deleteJobForAdmin(job) {
+  if (job.queueHandle) scheduler.remove(job.queueHandle);
+  jobs.delete(job.id);
+  job.events.removeAllListeners();
+  await fs.rm(job.dir, { recursive: true, force: true }).catch(() => {});
+}
+
 module.exports = {
   addUploads,
   normalizeOptions,
   cancelJob,
   createJob,
+  deleteJobForAdmin,
   getJob,
+  listJobsForAdmin,
   snapshot,
   startConversion,
   startSweeper,

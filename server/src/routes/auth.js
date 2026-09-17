@@ -181,7 +181,11 @@ router.post('/login/password', submitLimiter, async (req, res, next) => {
 
     const token = await sessionStore.create(user);
     setSessionCookie(res, token);
-    res.json({ user: userStore.publicUser(user) });
+    // 登录响应附带剩余额度（与注册一致），避免前端登录后徽章显示占位
+    res.json({
+      user: userStore.publicUser(user),
+      quotaRemaining: await quotaStore.getRemaining(user.id)
+    });
   } catch (error) {
     next(error);
   }
@@ -209,7 +213,11 @@ router.post('/login/email', submitLimiter, async (req, res, next) => {
 
     const token = await sessionStore.create(user);
     setSessionCookie(res, token);
-    res.json({ user: userStore.publicUser(user) });
+    // 登录响应附带剩余额度（与注册一致），避免前端登录后徽章显示占位
+    res.json({
+      user: userStore.publicUser(user),
+      quotaRemaining: await quotaStore.getRemaining(user.id)
+    });
   } catch (error) {
     next(error);
   }
@@ -235,10 +243,13 @@ router.post('/logout', requireAuth, async (req, res, next) => {
   }
 });
 
-// 当前登录用户（前端刷新后恢复会话；附带剩余额度）
+// 当前登录用户（前端刷新后恢复会话；附带剩余额度与角色）
 router.get('/me', meLimiter, requireAuth, async (req, res) => {
   const quotaRemaining = await quotaStore.getRemaining(req.user.id);
-  res.json({ user: req.user, quotaRemaining });
+  res.json({
+    user: { ...req.user, role: req.user.isAdmin ? 'admin' : 'user' },
+    quotaRemaining
+  });
 });
 
 module.exports = router;

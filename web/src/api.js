@@ -134,3 +134,56 @@ export function mdPreviewUrl(jobId, path) {
 export function jobZipUrl(jobId) {
   return `/api/jobs/${jobId}/download`
 }
+
+// ===== 管理后台（requireAdmin，403 由调用点提示） =====
+export function adminStats() {
+  return request('/api/admin/stats')
+}
+
+export function adminListUsers() {
+  return request('/api/admin/users')
+}
+
+export function adminCreateUser({ email, password, name, role }) {
+  return request('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, name, role })
+  })
+}
+
+export function adminSetRole(id, role) {
+  return request(`/api/admin/users/${id}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role })
+  })
+}
+
+export function adminAdjustQuota(id, delta) {
+  return request(`/api/admin/users/${id}/quota`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ delta })
+  })
+}
+
+export function adminResetPassword(id) {
+  return request(`/api/admin/users/${id}/password`, { method: 'POST' })
+}
+
+export function adminDeleteUser(id) {
+  return request(`/api/admin/users/${id}`, { method: 'DELETE' })
+}
+
+export function adminListJobs() {
+  return request('/api/admin/jobs')
+}
+
+export function adminCancelJob(id) {
+  return request(`/api/admin/jobs/${id}/cancel`, { method: 'POST' })
+}
+
+export function adminDeleteJob(id) {
+  return request(`/api/admin/jobs/${id}`, { method: 'DELETE' })
+}

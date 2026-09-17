@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 
 const config = require('../config');
 const sessionStore = require('../services/sessionStore');
+const userStore = require('../services/userStore');
 
 /**
  * 鉴权中间件
@@ -12,6 +13,7 @@ const sessionStore = require('../services/sessionStore');
  *   配合 SameSite=Lax 形成 CSRF 双保险；且不信任代理头，判定基于请求直达的本地端口
  * - isInternalRequest 仅供本机 Puppeteer 拉取任务源文件使用：必须来自 127.0.0.1/::1
  *   且携带一次性内部令牌，二者缺一不可（防外部伪造 X-Forwarded-For 绕过）
+ * - 角色不缓存在会话里：每次请求实时读用户表，管理员提权/降权即时生效
  */
 
 const TOKEN_TTL_SECONDS = Math.floor(config.auth.sessionIdleDays * 24 * 60 * 60);
@@ -131,7 +133,9 @@ async function requireAuth(req, res, next) {
       res.status(401).json({ error: '请先登录' });
       return;
     }
-    req.user = { id: session.userId, email: session.email, name: session.name };
+    // 角色实时读取（不缓存在会话里）：管理员提权/降权、用户删除即时生效
+    const isAdmin = await userStore.isAdmin(session.userId);
+    req.user = { id: session.userId, email: session.email, name: session.name, isAdmin };
     req.sessionToken = token;
     next();
   } catch (error) {
@@ -139,9 +143,19 @@ async function requireAuth(req, res, next) {
   }
 }
 
+// 管理员专用：requireAuth 之后链式使用
+function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) {
+    res.status(403).json({ error: '需要管理员权限' });
+    return;
+  }
+  next();
+}
+
 module.exports = {
   isInternalRequest,
   internalSourceBase,
+  requireAdmin,
   requireAuth,
   serializeSessionCookie,
   sameOriginGuard,

@@ -4,17 +4,15 @@ import { computed } from 'vue'
 /**
  * 全局用户标识徽章
  *
- * 展示：头像（首字符）+ 昵称 + 剩余处理文件数。
- * quota 暂未接通后端（传 null 显示占位「--」），后续配额接口就绪后
- * 由父组件传入数字即可点亮，无需改本组件。
+ * 展示：头像（首字符）+ 昵称 + 剩余处理文件数 + 管理员标识与管理入口。
  */
 const props = defineProps({
-  user: { type: Object, required: true }, // { name, email }
+  user: { type: Object, required: true }, // { name, email, isAdmin }
   // 剩余可处理文件数：null = 未接通（显示占位）；数字 = 实际额度
   quota: { type: Number, default: null }
 })
 
-const emit = defineEmits(['logout'])
+const emit = defineEmits(['logout', 'open-admin'])
 
 const initial = computed(() => (props.user?.name || props.user?.email || '?').trim().charAt(0).toUpperCase())
 
@@ -24,19 +22,24 @@ const quotaText = computed(() => {
 })
 
 const quotaExhausted = computed(() => props.quota === 0)
+const isAdmin = computed(() => !!props.user?.isAdmin)
 </script>
 
 <template>
   <div class="badge">
     <span class="avatar" :title="user?.email">{{ initial }}</span>
     <span class="meta">
-      <span class="name">{{ user?.name }}</span>
+      <span class="name">
+        {{ user?.name }}
+        <span v-if="isAdmin" class="admin-chip" title="管理员">管理</span>
+      </span>
       <span class="quota" :class="{ ready: quota !== null && quota !== undefined, exhausted: quotaExhausted }">
         <template v-if="quota === null || quota === undefined">⏳ {{ quotaText }}</template>
         <template v-else-if="quotaExhausted">🚫 {{ quotaText }}</template>
         <template v-else>📄 {{ quotaText }}</template>
       </span>
     </span>
+    <button v-if="isAdmin" class="admin-btn" title="进入管理后台" @click="emit('open-admin')">管理</button>
     <button class="logout" title="退出登录" aria-label="退出登录" @click="emit('logout')">退出</button>
   </div>
 </template>
@@ -82,6 +85,37 @@ const quotaExhausted = computed(() => props.quota === 0)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.admin-chip {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+
+.admin-btn {
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all var(--speed) var(--ease);
+}
+
+.admin-btn:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 .quota {

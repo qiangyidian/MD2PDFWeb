@@ -3,6 +3,7 @@ const fs = require('node:fs');
 
 const config = require('./config');
 const authRouter = require('./routes/auth');
+const adminRouter = require('./routes/admin');
 const jobsRouter = require('./routes/jobs');
 const jobManager = require('./services/jobManager');
 const sessionStore = require('./services/sessionStore');
@@ -51,6 +52,9 @@ app.get('/api/queue', requireAuth, (req, res) => {
 });
 
 app.use('/api/jobs', jobsRouter);
+
+// 管理后台（requireAuth + requireAdmin + 同源校验在路由内部）
+app.use('/api/admin', adminRouter);
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: '接口不存在' });

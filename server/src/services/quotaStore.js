@@ -143,4 +143,34 @@ async function release(userId, note = '') {
   return next;
 }
 
-module.exports = { getRemaining, grant, grantMissing, release, tryReserve };
+// ==================== 管理员操作 ====================
+
+// 管理员调整余额：delta 为正数充值、负数扣减（不低于 0），返回新余额
+async function adjust(userId, delta, note = '') {
+  await ensureLoaded();
+  const amount = Math.round(Number(delta) || 0);
+  if (!amount) {
+    const error = new Error('调整数额不能为 0');
+    error.statusCode = 400;
+    throw error;
+  }
+  const next = Math.max(0, (quotas.get(userId) || 0) + amount);
+  quotas.set(userId, next);
+  schedulePersist();
+  appendLedger(userId, amount > 0 ? 'grant' : 'revoke', Math.abs(amount), next, note);
+  return next;
+}
+
+// 批量查询余额（管理后台用户列表）
+async function getRemainingMap(userIds) {
+  await ensureLoaded();
+  return Object.fromEntries(userIds.map((id) => [id, quotas.get(id) || 0]));
+}
+
+// 用户删除时清理余额记录
+async function removeUser(userId) {
+  await ensureLoaded();
+  if (quotas.delete(userId)) schedulePersist();
+}
+
+module.exports = { adjust, getRemaining, getRemainingMap, grant, grantMissing, release, removeUser, tryReserve };

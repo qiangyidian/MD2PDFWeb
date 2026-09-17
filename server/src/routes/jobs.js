@@ -86,13 +86,13 @@ router.get('/:id', (req, res) => {
   if (job) res.json(jobManager.snapshot(job));
 });
 
-// 启动转换（进入调度队列；队列满/单用户超限时返回 429/503）
+// 启动转换（进入调度队列；队列满/单用户超限时返回 429/503；管理员任务免配额）
 router.post('/:id/start', async (req, res, next) => {
   const job = findJobOr404(req, res);
   if (!job) return;
 
   try {
-    await jobManager.startConversion(job, req.body || {});
+    await jobManager.startConversion(job, req.body || {}, { isAdmin: !!req.user?.isAdmin });
     res.json(jobManager.snapshot(job));
   } catch (error) {
     next(error);

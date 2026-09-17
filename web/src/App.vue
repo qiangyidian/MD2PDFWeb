@@ -4,6 +4,7 @@ import FileDrop from './components/FileDrop.vue'
 import Workbench from './components/Workbench.vue'
 import AuthView from './components/AuthView.vue'
 import UserBadge from './components/UserBadge.vue'
+import AdminView from './components/AdminView.vue'
 import { uploadFiles, getJob, getQueueStats, startJob, cancelJob, openEventStream, fetchMe, logout, setUnauthorizedHandler } from './api'
 
 // ---- 登录态：boot（会话恢复中）→ auth（未登录）→ app（已登录） ----
@@ -11,11 +12,14 @@ const boot = ref('loading') // loading | auth | app
 const user = ref(null)
 // 剩余可处理文件数（配额：登录/转换实时更新；null = 未知，徽章显示占位）
 const remainingQuota = ref(null)
+// 管理后台视图（仅 admin 角色可进入；接口层仍有二次校验）
+const showAdmin = ref(false)
 
 // 会话过期（任意接口 401）→ 全局切回登录页
 setUnauthorizedHandler(() => {
   user.value = null
   remainingQuota.value = null
+  showAdmin.value = false
   boot.value = 'auth'
   reset()
 })
@@ -24,6 +28,14 @@ async function onAuthenticated(u, quota) {
   user.value = u
   if (typeof quota === 'number') remainingQuota.value = quota
   boot.value = 'app'
+  // 兜底：登录响应未携带额度时补拉一次，避免徽章停留在「剩余额度 --」
+  if (typeof quota !== 'number') {
+    fetchMe()
+      .then(({ quotaRemaining }) => {
+        if (typeof quotaRemaining === 'number') remainingQuota.value = quotaRemaining
+      })
+      .catch(() => {})
+  }
 }
 
 async function onLogout() {
@@ -32,6 +44,7 @@ async function onLogout() {
   } catch { /* 会话已失效也照常退出 */ }
   user.value = null
   remainingQuota.value = null
+  showAdmin.value = false
   boot.value = 'auth'
   reset()
 }
@@ -287,6 +300,10 @@ onBeforeUnmount(() => {
 
   <!-- ============ 已登录：主应用 ============ -->
   <template v-else>
+    <!-- ============ 管理后台（admin 角色；整页切换，脱离转换流程） ============ -->
+    <AdminView v-if="showAdmin" :me="user" @close="showAdmin = false" />
+
+    <template v-else>
     <!-- ============ 全屏 IDE 工作台（上传成功后铺满视口） ============ -->
     <Transition name="wb">
       <div v-if="phase !== 'select' && phase !== 'uploading'" class="fullscreen">
@@ -317,9 +334,9 @@ onBeforeUnmount(() => {
 
     <!-- ============ 落地页 ============ -->
     <div class="page" :class="{ leaving: phase !== 'select' && phase !== 'uploading' }">
-      <!-- 全局用户标识（右上角悬浮；quota 待配额接口接通） -->
+      <!-- 全局用户标识（右上角悬浮） -->
       <div class="user-corner">
-        <UserBadge :user="user" :quota="remainingQuota" @logout="onLogout" />
+        <UserBadge :user="user" :quota="remainingQuota" @logout="onLogout" @open-admin="showAdmin = true" />
       </div>
       <header class="hero">
         <div class="logo">M↓</div>
@@ -349,6 +366,7 @@ onBeforeUnmount(() => {
         </footer>
       </main>
     </div>
+    </template>
   </template>
 </template>
 

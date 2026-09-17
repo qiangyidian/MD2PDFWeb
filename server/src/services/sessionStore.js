@@ -117,6 +117,20 @@ async function destroy(token) {
   if (token && sessions.delete(tokenId(token))) schedulePersist();
 }
 
+// 吊销某用户的全部会话（管理员重置密码/删除用户时调用，即刻踢下线）
+async function destroyAllForUser(userId) {
+  await ensureLoaded();
+  let removed = 0;
+  for (const [id, s] of sessions) {
+    if (s.userId === userId) {
+      sessions.delete(id);
+      removed += 1;
+    }
+  }
+  if (removed) schedulePersist();
+  return removed;
+}
+
 // 定期清扫 + 持久化兜底（登录后存活，间隔 10 分钟）
 function startSweeper() {
   const timer = setInterval(() => {
@@ -133,4 +147,4 @@ function startSweeper() {
   timer.unref?.();
 }
 
-module.exports = { create, destroy, resolve, startSweeper };
+module.exports = { create, destroy, destroyAllForUser, resolve, startSweeper };
